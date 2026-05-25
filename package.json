@@ -1,6 +1,6 @@
 {
   "name": "@pgilad/pi-vertex-anthropic",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Pi extension: Claude on Google Cloud Vertex AI via ADC. Uses the official @anthropic-ai/vertex-sdk for real Application Default Credentials (gcloud user creds, service account JSON, GCE/GKE metadata server, workload identity).",
   "type": "module",
   "license": "MIT",
@@ -24,7 +24,9 @@
     "adc"
   ],
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
   "engines": {
     "node": ">=24.0.0"
