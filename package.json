@@ -1,0 +1,64 @@
+{
+  "name": "@pgilad/pi-vertex-anthropic",
+  "version": "0.2.0",
+  "description": "Pi extension: Claude on Google Cloud Vertex AI via ADC. Uses the official @anthropic-ai/vertex-sdk for real Application Default Credentials (gcloud user creds, service account JSON, GCE/GKE metadata server, workload identity).",
+  "type": "module",
+  "license": "MIT",
+  "author": "Gilad Peleg <gilad.peleg@rna-data.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pgilad/pi-vertex-anthropic.git"
+  },
+  "homepage": "https://github.com/pgilad/pi-vertex-anthropic#readme",
+  "bugs": {
+    "url": "https://github.com/pgilad/pi-vertex-anthropic/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "anthropic",
+    "claude",
+    "vertex-ai",
+    "gcp",
+    "adc"
+  ],
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "files": [
+    "index.ts",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "check": "tsc",
+    "lint": "biome check index.ts test/",
+    "lint:fix": "biome check --write index.ts test/",
+    "format": "biome format --write index.ts test/",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/vertex-sdk": "^0.16.1"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.75.0",
+    "@earendil-works/pi-coding-agent": ">=0.75.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.0",
+    "vitest": "^4.1.7"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}
