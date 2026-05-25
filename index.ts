@@ -400,24 +400,46 @@ function streamSimple(model: Model<Api>, context: Context, options?: SimpleStrea
 }
 
 /**
- * streamAnthropic's signature requires Model<"anthropic-messages">, but our
- * model's api is "vertex-anthropic". Looking at the implementation (pi-ai's
- * dist/providers/anthropic.js):
+ * Bridge our registered model into the shape pi-ai's streamAnthropic expects.
  *
- *   - When options.client is provided (always, here), the createClient branch
- *     that would consume api-specific request shapes is skipped entirely.
- *   - model.api is only read once, at line 282, to populate the api field on
- *     the output AssistantMessage metadata. We want our "vertex-anthropic"
- *     value to flow through unchanged so cost/usage tracking and session
- *     records attribute requests to the right provider.
+ * Two things happen here:
  *
- * So we deliberately do NOT clone-and-rewrite the model — that would lie in
- * the output metadata. The cast is a one-place, well-bounded TypeScript
- * escape hatch. If pi-ai's anthropic.js ever starts dispatching on model.api
- * (e.g., to gate provider-specific request shaping), this will need to be
- * reconsidered.
+ *   1. Type cast. streamAnthropic's signature requires Model<"anthropic-messages">,
+ *      but our model's api is "vertex-anthropic". At runtime pi-ai only reads
+ *      model.api once (to populate output metadata) — we want our value to flow
+ *      through unchanged so cost/usage tracking attributes requests to the
+ *      right provider. The cast is a one-place, well-bounded TypeScript escape
+ *      hatch. If pi-ai's anthropic.js ever starts dispatching on model.api
+ *      (e.g., to gate provider-specific request shaping), this will need to be
+ *      reconsidered.
+ *
+ *   2. Inject `compat.forceAdaptiveThinking` for adaptive models. pi-ai's
+ *      streamAnthropic decides between `thinking: { type: "adaptive" }` +
+ *      `output_config.effort` vs the legacy `thinking: { type: "enabled",
+ *      budget_tokens }` shape based ENTIRELY on `model.compat?.forceAdaptiveThinking
+ *      === true` (see anthropic.js, the param builder). It does NOT look at
+ *      whether the caller set `effort` vs `thinkingBudgetTokens`. Without this
+ *      flag, opus-4-7 / sonnet-4-6 silently fall through to budget-based
+ *      thinking with the default 1024-token budget, and our computed `effort`
+ *      is dropped on the floor.
+ *
+ *      The Model<TApi>["compat"] field is typed as AnthropicMessagesCompat
+ *      only when TApi extends "anthropic-messages", and resolves to `never`
+ *      for our "vertex-anthropic" tag — so we can't put `compat` on the
+ *      registered model literal. We inject it here, behind the same cast.
+ *
+ * Shallow-cloned (not mutated) so we don't poison whatever pi caches on the
+ * registered model; existing runtime compat fields are preserved, and spreading
+ * preserves model.api, so the metadata-flow concern from point (1) still holds.
  */
-function asAnthropicMessagesModel<T extends Model<Api>>(model: T): Model<"anthropic-messages"> {
+export function asAnthropicMessagesModel<T extends Model<Api>>(model: T): Model<"anthropic-messages"> {
+	if (isAdaptiveThinkingModel(model.id)) {
+		const existingCompat = (model as unknown as { compat?: NonNullable<Model<"anthropic-messages">["compat"]> }).compat;
+		return {
+			...model,
+			compat: { ...existingCompat, forceAdaptiveThinking: true },
+		} as unknown as Model<"anthropic-messages">;
+	}
 	return model as unknown as Model<"anthropic-messages">;
 }
 
