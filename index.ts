@@ -320,16 +320,71 @@ async function refreshAdc(credentials: OAuthCredentials): Promise<OAuthCredentia
 
 // =============================================================================
 // Thinking-level mapping (pi → Anthropic SDK)
+//
+// Two thinking shapes coexist in Anthropic's Messages API:
+//
+//   1. ADAPTIVE THINKING (Opus 4.6 / 4.7 / 4.8, Sonnet 4.6, Fable 5):
+//      `thinking: { type: "adaptive" }` + `output_config.effort`. The model
+//      decides when/how much to think; pi maps `reasoning` → an effort string
+//      (low / medium / high / xhigh).
+//
+//   2. EXTENDED (BUDGETED) THINKING (Haiku 4.5, Sonnet 4.5, Opus 4.1 / 4.5, …):
+//      `thinking: { type: "enabled", budget_tokens: N }`. Pi maps `reasoning`
+//      → an integer token budget. Anthropic requires `budget_tokens` to be
+//      strictly less than `max_tokens`, so we grow `max_tokens` to absorb the
+//      budget — mirroring upstream pi-ai's `adjustMaxTokensForThinking`.
+//
+// Per-model adaptive metadata lives in ADAPTIVE_THINKING below. The map also
+// gates `xhigh`: sending `effort: "xhigh"` to a model that doesn't expose an
+// `xhigh` slot is a 400 from the API (e.g. Sonnet 4.6). Upstream pi-ai handles
+// this via `model.thinkingLevelMap`; we keep the same shape and the same
+// clamp-to-`high` fallback semantics.
 // =============================================================================
 
 type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
+/**
+ * Per-model adaptive-thinking overrides, keyed by the model id with any
+ * `@DATE` version suffix stripped. Presence in the table ⇒ adaptive thinking;
+ * absence ⇒ extended/budgeted thinking.
+ *
+ * The `xhigh` field encodes which SDK effort value to send when pi requests
+ * level `xhigh`. Omit it to clamp `xhigh` down to `high` (matching upstream
+ * pi-ai's `mapThinkingLevelToEffort` fallback).
+ *
+ *   • Opus 4.6 / 4.7 / 4.8 — adaptive with xhigh. We map xhigh → "xhigh" to
+ *     match pi-ai's built-in registry, which ships `thinkingLevelMap: { xhigh:
+ *     "xhigh" }` for these models. (The SDK also exposes a stronger "max"
+ *     effort value, but pi-ai's own registry never selects it — staying in
+ *     sync avoids drift.)
+ *   • Sonnet 4.6  — adaptive WITHOUT xhigh. Upstream pi-ai's built-in entry
+ *     for `claude-sonnet-4-6` ships no `thinkingLevelMap`, so `xhigh` is
+ *     rejected by the API and we clamp to `high`.
+ *   • Fable 5     — adaptive; xhigh support unconfirmed (versionId still
+ *     `default` in the Vertex catalog), treated conservatively as not
+ *     supported until Anthropic's docs land. Easy to flip when confirmed.
+ */
+const ADAPTIVE_THINKING: Record<string, { xhigh?: "xhigh" | "max" }> = {
+	"claude-opus-4-6": { xhigh: "xhigh" },
+	"claude-opus-4-7": { xhigh: "xhigh" },
+	"claude-opus-4-8": { xhigh: "xhigh" },
+	"claude-sonnet-4-6": {},
+	"claude-fable-5": {},
+};
+
+function stripVersion(modelId: string): string {
+	const at = modelId.indexOf("@");
+	return at === -1 ? modelId : modelId.slice(0, at);
+}
+
 // Adaptive thinking models pick effort instead of a token budget.
 export function isAdaptiveThinkingModel(modelId: string): boolean {
-	return /(opus-4-6|opus-4-7|sonnet-4-6)/.test(modelId);
+	return stripVersion(modelId) in ADAPTIVE_THINKING;
 }
 
 export function effortFor(modelId: string, level: PiThinkingLevel): NonNullable<AnthropicOptions["effort"]> {
+	const entry = ADAPTIVE_THINKING[stripVersion(modelId)];
+	if (level === "xhigh") return entry?.xhigh ?? "high";
 	switch (level) {
 		case "minimal":
 		case "low":
@@ -338,8 +393,6 @@ export function effortFor(modelId: string, level: PiThinkingLevel): NonNullable<
 			return "medium";
 		case "high":
 			return "high";
-		case "xhigh":
-			return modelId.includes("opus-4-6") ? "max" : "xhigh";
 		default:
 			return "high";
 	}
@@ -352,6 +405,28 @@ const DEFAULT_BUDGETS: Record<Exclude<PiThinkingLevel, "off">, number> = {
 	high: 20480,
 	xhigh: 32768,
 };
+
+/**
+ * Mirror of upstream pi-ai's `adjustMaxTokensForThinking`
+ * (providers/simple-options.js). Anthropic requires `budget_tokens` to be
+ * strictly less than `max_tokens`; this helper grows `max_tokens` (capped at
+ * the model's hard cap) to absorb the thinking budget. When even the model
+ * cap can't fit budget + a minimum output window, the budget is shrunk so the
+ * final answer still has room.
+ *
+ * Returns the adjusted values that should be sent on AnthropicOptions.
+ */
+export function adjustMaxTokensForThinking(
+	requestedMaxTokens: number | undefined,
+	modelMaxTokens: number,
+	budget: number,
+): { maxTokens: number; thinkingBudget: number } {
+	const MIN_OUTPUT_TOKENS = 1024;
+	const maxTokens =
+		requestedMaxTokens === undefined ? modelMaxTokens : Math.min(requestedMaxTokens + budget, modelMaxTokens);
+	const thinkingBudget = maxTokens <= budget ? Math.max(0, maxTokens - MIN_OUTPUT_TOKENS) : budget;
+	return { maxTokens, thinkingBudget };
+}
 
 // =============================================================================
 // streamSimple: SimpleStreamOptions → AnthropicOptions, injecting Vertex client
@@ -389,8 +464,19 @@ function streamSimple(model: Model<Api>, context: Context, options?: SimpleStrea
 		if (isAdaptiveThinkingModel(model.id)) {
 			opts.effort = effortFor(model.id, reasoning);
 		} else {
+			// Budget-based thinking. We must keep budget_tokens < max_tokens AND
+			// grow max_tokens (within the model cap) to absorb the budget so the
+			// final answer still has room. Mirrors upstream pi-ai's
+			// adjustMaxTokensForThinking — see the doc-comment on that helper.
 			const customBudget = options?.thinkingBudgets?.[reasoning as keyof typeof options.thinkingBudgets];
-			opts.thinkingBudgetTokens = customBudget ?? DEFAULT_BUDGETS[reasoning] ?? 10240;
+			const budget = customBudget ?? DEFAULT_BUDGETS[reasoning] ?? DEFAULT_BUDGETS.medium;
+			const { maxTokens, thinkingBudget } = adjustMaxTokensForThinking(
+				options?.maxTokens,
+				model.maxTokens ?? 64_000,
+				budget,
+			);
+			opts.maxTokens = maxTokens;
+			opts.thinkingBudgetTokens = thinkingBudget;
 		}
 	} else {
 		opts.thinkingEnabled = false;
@@ -486,11 +572,37 @@ export default function (pi: ExtensionAPI) {
 				cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 			},
 			{
-				id: "claude-sonnet-4-6",
-				name: "Claude Sonnet 4.6 (Vertex)",
-				reasoning: true, // adaptive + extended; we use adaptive (effort)
+				// versionId is `default` in the Vertex catalog (no dated alias yet);
+				// pricing/limits below are provisional, modeled on Opus 4.7 until
+				// Anthropic publishes the model card.
+				id: "claude-opus-4-8",
+				name: "Claude Opus 4.8 (Vertex)",
+				reasoning: true, // adaptive thinking; effort: low/medium/high/xhigh
 				input: ["text", "image"],
 				contextWindow: 1_000_000,
+				maxTokens: 128_000,
+				cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+			},
+			{
+				id: "claude-sonnet-4-6",
+				name: "Claude Sonnet 4.6 (Vertex)",
+				reasoning: true, // adaptive thinking; effort: low/medium/high (no xhigh)
+				input: ["text", "image"],
+				contextWindow: 1_000_000,
+				maxTokens: 64_000,
+				cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+			},
+			{
+				// versionId is `default` in the Vertex catalog. Pricing/limits are
+				// provisional placeholders (Sonnet-tier) until Anthropic publishes
+				// the model card. Adaptive thinking is assumed by analogy with the
+				// other `default`-versioned 4.x adaptive models; xhigh is gated off
+				// in ADAPTIVE_THINKING and will clamp to `high` until confirmed.
+				id: "claude-fable-5",
+				name: "Claude Fable 5 (Vertex)",
+				reasoning: true,
+				input: ["text", "image"],
+				contextWindow: 200_000,
 				maxTokens: 64_000,
 				cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
 			},

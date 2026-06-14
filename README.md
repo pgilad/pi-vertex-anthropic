@@ -240,22 +240,29 @@ Pick interactively with `/model`, or pass on the command line:
 
 ```bash
 pi --provider vertex-anthropic --model claude-opus-4-7
+pi --provider vertex-anthropic --model claude-opus-4-8
 pi --provider vertex-anthropic --model claude-sonnet-4-6
 pi --provider vertex-anthropic --model claude-haiku-4-5@20251001
+pi --provider vertex-anthropic --model claude-fable-5
 ```
 
-Model IDs are taken verbatim from [Anthropic's Vertex AI docs](https://platform.claude.com/docs/en/about-claude/models/overview):
+Model IDs are taken verbatim from [Anthropic's Vertex AI docs](https://platform.claude.com/docs/en/about-claude/models/overview) and the Vertex Model Garden catalog:
 
-| Model | Vertex AI ID | Context | Max output | Thinking |
-|---|---|---|---|---|
-| Claude Opus 4.7 | `claude-opus-4-7` | 1M | 128K | adaptive (effort) |
-| Claude Sonnet 4.6 | `claude-sonnet-4-6` | 1M | 64K | adaptive (effort) |
-| Claude Haiku 4.5 | `claude-haiku-4-5@20251001` | 200K | 64K | extended (budget) |
+| Model | Vertex AI ID | Context | Max output | Thinking | `xhigh` |
+|---|---|---|---|---|---|
+| Claude Opus 4.7 | `claude-opus-4-7` | 1M | 128K | adaptive (effort) | ✅ |
+| Claude Opus 4.8 | `claude-opus-4-8` | 1M | 128K | adaptive (effort) | ✅ |
+| Claude Sonnet 4.6 | `claude-sonnet-4-6` | 1M | 64K | adaptive (effort) | clamped to `high` |
+| Claude Haiku 4.5 | `claude-haiku-4-5@20251001` | 200K | 64K | extended (budget) | — |
+| Claude Fable 5 | `claude-fable-5` | 200K | 64K | adaptive (effort) | clamped to `high` |
+
+> **Provisional entries.** `claude-opus-4-8` and `claude-fable-5` are listed in the Vertex Model Garden catalog with `versionId: default` (no dated `@YYYYMMDD` alias yet). Their pricing, context window, and thinking config are best-effort placeholders modeled on the closest released sibling — revisit once Anthropic publishes the model cards.
 
 pi maps thinking levels automatically:
 
-- **Opus 4.7, Sonnet 4.6** (adaptive thinking): `--thinking low|medium|high|xhigh` becomes the SDK's `effort` parameter.
-- **Haiku 4.5** (extended thinking): pi thinking levels map to `thinkingBudgetTokens` using the default budgets (1k / 4k / 10k / 20k / 32k) or your `settings.thinkingBudgets` overrides. See pi's [`thinkingBudgets` settings docs](https://github.com/earendil-works/pi-coding-agent/blob/main/docs/settings.md#thinkingbudgets) for the exact settings shape.
+- **Opus 4.7, Opus 4.8** (adaptive, with `xhigh`): `--thinking low|medium|high|xhigh` becomes the SDK's `effort` parameter directly.
+- **Sonnet 4.6, Fable 5** (adaptive, no `xhigh` slot): `low|medium|high` pass through; `xhigh` is clamped to `high` so Anthropic's API doesn't 400 the request. Matches upstream pi-ai's `mapThinkingLevelToEffort` fallback when a model's `thinkingLevelMap` lacks an `xhigh` entry.
+- **Haiku 4.5** (extended/budgeted thinking): pi thinking levels map to `thinkingBudgetTokens` using the default budgets (1k / 4k / 10k / 20k / 32k for `minimal`/`low`/`medium`/`high`/`xhigh`) or your `settings.thinkingBudgets` overrides. See pi's [`thinkingBudgets` settings docs](https://github.com/earendil-works/pi-coding-agent/blob/main/docs/settings.md#thinkingbudgets) for the exact shape. The extension grows `max_tokens` (capped at the model maximum) to absorb the budget — mirroring upstream's `adjustMaxTokensForThinking` — so `--max-tokens 4000 --thinking high` won't violate Anthropic's `budget_tokens < max_tokens` constraint.
 
 ## Security notes
 

@@ -6,10 +6,19 @@
 
 - Interactive region picker at `/login`. Offers `global` (recommended), `us-east5`, `us-central1`, `europe-west1`, `europe-west4`, `asia-southeast1`. Falls through to the previous behaviour (env var → `global` default) in non-interactive contexts or on cancel.
 - `chooseRegionAtLogin` exported for unit testing.
+- New models registered from the Vertex Model Garden catalog: `claude-opus-4-8` (adaptive thinking, `xhigh` supported) and `claude-fable-5` (adaptive thinking, `xhigh` clamped to `high` until Anthropic confirms support). Both currently ship with `versionId: default` on Vertex; pricing and limits are provisional placeholders modeled on the closest released sibling.
+- `adjustMaxTokensForThinking` helper (exported, tested) — mirrors upstream pi-ai's `providers/simple-options.js:adjustMaxTokensForThinking`. Grows `max_tokens` to absorb the thinking budget, capped at the model maximum, and shrinks the budget when even the cap can't fit a 1024-token minimum output window. Eliminates the previous failure mode where `--thinking high` on a small `--max-tokens` request produced a 400 from Anthropic (`budget_tokens` must be `< max_tokens`).
 
 ### Changed
 
 - `refreshAdc` now preserves the user's chosen region from the existing credential instead of re-resolving it. Daily refreshes never silently re-prompt or reset the region.
+- Thinking-mode routing is now declarative. Replaced the regex-based `isAdaptiveThinkingModel` / `effortFor` with a per-model `ADAPTIVE_THINKING` table keyed by base model id (with `@DATE` version suffixes stripped before lookup). Each adaptive entry encodes its own `xhigh` slot, matching the shape of upstream pi-ai's `model.thinkingLevelMap`.
+- Budget-based thinking (Haiku 4.5 and any future non-adaptive model) now goes through `adjustMaxTokensForThinking` instead of setting `thinkingBudgetTokens` directly, so `max_tokens` is grown automatically to satisfy Anthropic's `budget_tokens < max_tokens` requirement.
+
+### Fixed
+
+- `effortFor("claude-sonnet-4-6", "xhigh")` no longer returns `"xhigh"` — Sonnet 4.6's API rejects that effort value (upstream pi-ai's built-in registry ships no `thinkingLevelMap` for this model, confirming the `xhigh` slot is absent). It now clamps to `"high"`, matching upstream's `mapThinkingLevelToEffort` fallback.
+- `effortFor("claude-opus-4-6", "xhigh")` no longer returns `"max"`. Upstream pi-ai's built-in `claude-opus-4-6` registry entry maps `thinkingLevelMap.xhigh` to the string `"xhigh"`, not `"max"`; we now match upstream to avoid drift. (The `"max"` effort value exists in the SDK enum but pi-ai's own registry never selects it.)
 
 ## 0.2.0 — 2026-05-24
 
