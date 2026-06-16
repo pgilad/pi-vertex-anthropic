@@ -48,7 +48,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/vertex-sdk": "^0.16.1"
+    "@anthropic-ai/vertex-sdk": "^0.17.1"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.75.0",
@@ -56,7 +56,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@types/node": "^24.0.0",
+    "@types/node": "^25.9.3",
     "typescript": "^6.0.0",
     "vitest": "^4.1.7"
   },
