@@ -40,7 +40,36 @@ import {
 	type SimpleStreamOptions,
 	streamAnthropic,
 } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+interface ProviderModelConfig {
+	id: string;
+	name: string;
+	api?: Api;
+	baseUrl?: string;
+	reasoning: boolean;
+	input: Model<Api>["input"];
+	cost: Model<Api>["cost"];
+	contextWindow: number;
+	maxTokens: number;
+}
+
+interface ProviderConfig {
+	name?: string;
+	baseUrl?: string;
+	api?: Api;
+	streamSimple?: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream;
+	oauth?: {
+		name: string;
+		login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials>;
+		refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials>;
+		getApiKey(credentials: OAuthCredentials): string;
+	};
+	models?: ProviderModelConfig[];
+}
+
+interface ExtensionAPI {
+	registerProvider(name: string, config: ProviderConfig): void;
+}
 
 // =============================================================================
 // Project / region resolution (ADC-aware)
