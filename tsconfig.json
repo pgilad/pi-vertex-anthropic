@@ -3,6 +3,7 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "lib": ["ESNext"],
     "types": ["node"],
     "strict": true,
@@ -11,5 +12,5 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["index.ts"]
+  "include": ["index.ts", "test/**/*.ts"]
 }

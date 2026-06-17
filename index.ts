@@ -47,6 +47,7 @@ interface ProviderModelConfig {
 	api?: Api;
 	baseUrl?: string;
 	reasoning: boolean;
+	thinkingLevelMap?: Model<Api>["thinkingLevelMap"];
 	input: Model<Api>["input"];
 	cost: Model<Api>["cost"];
 	contextWindow: number;
@@ -151,9 +152,21 @@ export function regionFromEnv(): string | undefined {
 // request. PI_CODING_AGENT_DIR matches pi's own settings resolution.
 let _credCache: { projectId?: string; region?: string } | undefined;
 
-/** @internal — for tests only. Clears the auth.json read cache. */
-export function __resetCredCacheForTests(): void {
+/**
+ * Clear the cached auth.json read. Production-callable: the per-process cache
+ * (see above) assumes pi reloads the module after /login or /logout. If that
+ * assumption ever stops holding, call this to force the next resolution to
+ * re-read auth.json. `/login` and `refreshAdc` call it after successful ADC
+ * probes, so staleness in a long-lived process is bounded to the next auth
+ * validation.
+ */
+export function resetCredentialCache(): void {
 	_credCache = undefined;
+}
+
+/** @internal — back-compat alias used by the test suite. */
+export function __resetCredCacheForTests(): void {
+	resetCredentialCache();
 }
 
 export function credentialFromAuthJson(): { projectId?: string; region?: string } {
@@ -176,7 +189,7 @@ export function credentialFromAuthJson(): { projectId?: string; region?: string 
 	}
 }
 
-function resolveProjectId(): string {
+export function resolveProjectId(): string {
 	const project = projectFromEnv() || credentialFromAuthJson().projectId || projectFromAdcFile();
 	if (!project) {
 		throw new Error(
@@ -188,7 +201,7 @@ function resolveProjectId(): string {
 	return project;
 }
 
-function resolveRegion(): string {
+export function resolveRegion(): string {
 	const region = regionFromEnv() || credentialFromAuthJson().region;
 	return region && REGION_RE.test(region) ? region : DEFAULT_REGION;
 }
@@ -316,6 +329,9 @@ async function loginAdc(callbacks: OAuthLoginCallbacks): Promise<OAuthCredential
 
 	const region = await chooseRegionAtLogin(callbacks);
 	callbacks.onProgress?.(`Authenticated: project=${projectId}, region=${region}.`);
+	// /login is about to persist this credential; clear any old auth.json
+	// snapshot held by a long-lived process before the next request resolves.
+	resetCredentialCache();
 
 	return {
 		// Sentinels — streamSimple ignores apiKey because the AnthropicVertex
@@ -338,6 +354,9 @@ async function refreshAdc(credentials: OAuthCredentials): Promise<OAuthCredentia
 	const projectId = await probeAdcProject();
 	const storedRegion = typeof credentials.region === "string" ? credentials.region : undefined;
 	const region = storedRegion && REGION_RE.test(storedRegion) ? storedRegion : DEFAULT_REGION;
+	// Drop our cached auth.json read so the next request re-resolves against
+	// whatever pi persists from this refresh, even in a long-lived process.
+	resetCredentialCache();
 	return {
 		access: "adc",
 		refresh: "adc",
@@ -352,7 +371,7 @@ async function refreshAdc(credentials: OAuthCredentials): Promise<OAuthCredentia
 //
 // Two thinking shapes coexist in Anthropic's Messages API:
 //
-//   1. ADAPTIVE THINKING (Opus 4.6 / 4.7 / 4.8, Sonnet 4.6, Fable 5):
+//   1. ADAPTIVE THINKING (Opus 4.7 / 4.8, Sonnet 4.6, Fable 5):
 //      `thinking: { type: "adaptive" }` + `output_config.effort`. The model
 //      decides when/how much to think; pi maps `reasoning` → an effort string
 //      (low / medium / high / xhigh).
@@ -381,24 +400,20 @@ type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
  * level `xhigh`. Omit it to clamp `xhigh` down to `high` (matching upstream
  * pi-ai's `mapThinkingLevelToEffort` fallback).
  *
- *   • Opus 4.6 / 4.7 / 4.8 — adaptive with xhigh. We map xhigh → "xhigh" to
- *     match pi-ai's built-in registry, which ships `thinkingLevelMap: { xhigh:
- *     "xhigh" }` for these models. (The SDK also exposes a stronger "max"
- *     effort value, but pi-ai's own registry never selects it — staying in
- *     sync avoids drift.)
- *   • Sonnet 4.6  — adaptive WITHOUT xhigh. Upstream pi-ai's built-in entry
+ *   • Opus 4.7 / 4.8 and Fable 5 — adaptive with xhigh. We map xhigh →
+ *     "xhigh" to match pi-ai's built-in registry, which ships
+ *     `thinkingLevelMap: { xhigh: "xhigh" }` for these models. (The SDK also
+ *     exposes a stronger "max" effort value for older Opus models, but pi-ai's
+ *     own registry never selects it here — staying in sync avoids drift.)
+ *   • Sonnet 4.6 — adaptive WITHOUT xhigh. Upstream pi-ai's built-in entry
  *     for `claude-sonnet-4-6` ships no `thinkingLevelMap`, so `xhigh` is
  *     rejected by the API and we clamp to `high`.
- *   • Fable 5     — adaptive; xhigh support unconfirmed (versionId still
- *     `default` in the Vertex catalog), treated conservatively as not
- *     supported until Anthropic's docs land. Easy to flip when confirmed.
  */
 const ADAPTIVE_THINKING: Record<string, { xhigh?: "xhigh" | "max" }> = {
-	"claude-opus-4-6": { xhigh: "xhigh" },
 	"claude-opus-4-7": { xhigh: "xhigh" },
 	"claude-opus-4-8": { xhigh: "xhigh" },
 	"claude-sonnet-4-6": {},
-	"claude-fable-5": {},
+	"claude-fable-5": { xhigh: "xhigh" },
 };
 
 function stripVersion(modelId: string): string {
@@ -461,18 +476,19 @@ export function adjustMaxTokensForThinking(
 // streamSimple: SimpleStreamOptions → AnthropicOptions, injecting Vertex client
 // =============================================================================
 
-function streamSimple(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
-	const client = getVertexClient();
-
+/**
+ * Pure mapping from pi's SimpleStreamOptions to the AnthropicOptions that
+ * streamAnthropic consumes — extracted from streamSimple so it can be unit
+ * tested without constructing a Vertex client or touching the network. Does
+ * NOT set `client`; streamSimple injects that separately.
+ *
+ * Thinking routing:
+ *   • adaptive models → `effort` (via effortFor)
+ *   • budget models   → `thinkingBudgetTokens` + grown `maxTokens`
+ *   • reasoning off / unset / model without `reasoning` → thinking disabled
+ */
+export function buildAnthropicOptions(model: Model<Api>, options?: SimpleStreamOptions): AnthropicOptions {
 	const opts: AnthropicOptions = {
-		// AnthropicVertex extends the same BaseAnthropic class but our copy of
-		// @anthropic-ai/sdk lives in a different node_modules path than pi-ai's
-		// nested copy. ECMAScript private fields (#private) are nominal across
-		// module instances even when the classes are structurally identical, so
-		// `as unknown as Anthropic` won't satisfy tsc. Runtime is fine — both
-		// classes share the same shape and the streaming API path doesn't touch
-		// any private state.
-		client: client as unknown as AnthropicOptions["client"],
 		temperature: options?.temperature,
 		maxTokens: options?.maxTokens,
 		signal: options?.signal,
@@ -511,6 +527,19 @@ function streamSimple(model: Model<Api>, context: Context, options?: SimpleStrea
 		opts.thinkingEnabled = false;
 	}
 
+	return opts;
+}
+
+function streamSimple(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	const opts = buildAnthropicOptions(model, options);
+	// AnthropicVertex extends the same BaseAnthropic class but our copy of
+	// @anthropic-ai/sdk lives in a different node_modules path than pi-ai's
+	// nested copy. ECMAScript private fields (#private) are nominal across
+	// module instances even when the classes are structurally identical, so
+	// `as unknown as Anthropic` won't satisfy tsc. Runtime is fine — both
+	// classes share the same shape and the streaming API path doesn't touch
+	// any private state.
+	opts.client = getVertexClient() as unknown as AnthropicOptions["client"];
 	return streamAnthropic(asAnthropicMessagesModel(model), context, opts);
 }
 
@@ -595,18 +624,20 @@ export default function (pi: ExtensionAPI) {
 				id: "claude-opus-4-7",
 				name: "Claude Opus 4.7 (Vertex)",
 				reasoning: true, // adaptive thinking; effort: low/medium/high/xhigh
+				thinkingLevelMap: { xhigh: "xhigh" },
 				input: ["text", "image"],
 				contextWindow: 1_000_000,
 				maxTokens: 128_000,
 				cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 			},
 			{
-				// versionId is `default` in the Vertex catalog (no dated alias yet);
-				// pricing/limits below are provisional, modeled on Opus 4.7 until
-				// Anthropic publishes the model card.
+				// GA model. Pricing verified against Anthropic's published rates
+				// ($5 / $25 per MTok; cache read 0.1×, 5-min cache write 1.25×).
+				// Vertex bills the same per-token rates.
 				id: "claude-opus-4-8",
 				name: "Claude Opus 4.8 (Vertex)",
 				reasoning: true, // adaptive thinking; effort: low/medium/high/xhigh
+				thinkingLevelMap: { xhigh: "xhigh" },
 				input: ["text", "image"],
 				contextWindow: 1_000_000,
 				maxTokens: 128_000,
@@ -622,18 +653,20 @@ export default function (pi: ExtensionAPI) {
 				cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
 			},
 			{
-				// versionId is `default` in the Vertex catalog. Pricing/limits are
-				// provisional placeholders (Sonnet-tier) until Anthropic publishes
-				// the model card. Adaptive thinking is assumed by analogy with the
-				// other `default`-versioned 4.x adaptive models; xhigh is gated off
-				// in ADAPTIVE_THINKING and will clamp to `high` until confirmed.
+				// Pricing and limits from Anthropic's published Fable 5 model card
+				// ($10 / $50 per MTok; cache read 0.1×, 5-min cache write 1.25×;
+				// 1M context, 128K max output). Vertex bills the same per-token
+				// rates. The Vertex catalog still lists versionId `default` (no
+				// dated alias yet). xhigh is enabled to match Anthropic/pi-ai model
+				// metadata; off is marked unsupported as in upstream pi-ai.
 				id: "claude-fable-5",
 				name: "Claude Fable 5 (Vertex)",
-				reasoning: true,
+				reasoning: true, // adaptive thinking; effort: low/medium/high/xhigh
+				thinkingLevelMap: { off: null, xhigh: "xhigh" },
 				input: ["text", "image"],
-				contextWindow: 200_000,
-				maxTokens: 64_000,
-				cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+				contextWindow: 1_000_000,
+				maxTokens: 128_000,
+				cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
 			},
 			{
 				id: "claude-haiku-4-5@20251001",

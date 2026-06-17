@@ -9,7 +9,6 @@ function fakeModel(id: string, compat?: Record<string, unknown>): Model<Api> {
 
 describe("isAdaptiveThinkingModel", () => {
 	it("recognises every adaptive-thinking model in the registry", () => {
-		expect(isAdaptiveThinkingModel("claude-opus-4-6")).toBe(true);
 		expect(isAdaptiveThinkingModel("claude-opus-4-7")).toBe(true);
 		expect(isAdaptiveThinkingModel("claude-opus-4-8")).toBe(true);
 		expect(isAdaptiveThinkingModel("claude-sonnet-4-6")).toBe(true);
@@ -44,12 +43,12 @@ describe("effortFor", () => {
 		expect(effortFor(adaptive, "high")).toBe("high");
 	});
 
-	it("maps xhigh to 'xhigh' on Opus 4.6 / 4.7 / 4.8 (models that expose the slot)", () => {
+	it("maps xhigh to 'xhigh' on Opus 4.7 / 4.8 and Fable 5 (models that expose the slot)", () => {
 		// Matches upstream pi-ai's built-in registry, which ships
-		// thinkingLevelMap: { xhigh: "xhigh" } for these Opus 4.x models.
-		expect(effortFor("claude-opus-4-6", "xhigh")).toBe("xhigh");
+		// thinkingLevelMap: { xhigh: "xhigh" } for these models.
 		expect(effortFor("claude-opus-4-7", "xhigh")).toBe("xhigh");
 		expect(effortFor("claude-opus-4-8", "xhigh")).toBe("xhigh");
+		expect(effortFor("claude-fable-5", "xhigh")).toBe("xhigh");
 	});
 
 	it("clamps xhigh down to 'high' on models without an xhigh slot", () => {
@@ -57,8 +56,6 @@ describe("effortFor", () => {
 		// the API rejects effort=xhigh, and upstream's mapThinkingLevelToEffort
 		// falls through to "high". We must match that or the API will 400.
 		expect(effortFor("claude-sonnet-4-6", "xhigh")).toBe("high");
-		// Fable 5 — xhigh support unconfirmed, treated conservatively as off.
-		expect(effortFor("claude-fable-5", "xhigh")).toBe("high");
 	});
 
 	it("resolves effort for @DATE-suffixed model ids", () => {
@@ -66,8 +63,7 @@ describe("effortFor", () => {
 		expect(effortFor("claude-sonnet-4-6@20260301", "xhigh")).toBe("high");
 	});
 
-	it("falls back to 'high' for unknown levels (defensive default)", () => {
-		// @ts-expect-error — exercising the default branch with an out-of-spec value
+	it("falls back to 'high' for the 'off' sentinel (defensive default branch)", () => {
 		expect(effortFor(adaptive, "off")).toBe("high");
 	});
 });
@@ -121,7 +117,7 @@ describe("asAnthropicMessagesModel", () => {
 	// silently downgrades adaptive models to legacy budget-based thinking with
 	// the default 1024-token budget, dropping our computed `effort` on the floor.
 	it("injects compat.forceAdaptiveThinking for adaptive models", () => {
-		for (const id of ["claude-opus-4-6", "claude-opus-4-7", "claude-sonnet-4-6"]) {
+		for (const id of ["claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-4-6", "claude-fable-5"]) {
 			const out = asAnthropicMessagesModel(fakeModel(id)) as Model<Api> & {
 				compat?: { forceAdaptiveThinking?: boolean };
 			};

@@ -57,10 +57,12 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
     "@earendil-works/pi-ai": "^0.79.4",
+    "@earendil-works/pi-coding-agent": "^0.79.4",
     "@types/node": "^25.9.3",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },
+  "//": "overrides.uuid pins a single modern uuid (v11) across the transitive tree (@anthropic-ai/vertex-sdk -> google-auth-library -> gaxios -> uuid). Safeguard against an older duplicate being deduped in; revisit when that chain no longer needs it.",
   "overrides": {
     "uuid": "^11.1.1"
   },

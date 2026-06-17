@@ -31,6 +31,17 @@ Do not use this extension if:
 - Your GCP project does not have Vertex AI enabled or Anthropic Claude model access granted in Model Garden.
 - You need this extension to provision GCP resources or request Model Garden access for you; it only connects pi to an already-configured Vertex AI project.
 
+## Relationship to pi-ai's built-in `google-vertex` provider
+
+pi 0.75+ ships a built-in `google-vertex` provider, so after `/login` you may see two Vertex-related providers in `pi --list-models`. They do not overlap — each serves a different model family:
+
+| Provider | Serves | SDK |
+|---|---|---|
+| `google-vertex` (built into pi-ai) | **Gemini** models on Vertex AI | `@google/genai` |
+| `vertex-anthropic` (this extension) | **Anthropic Claude** models on Vertex AI | `@anthropic-ai/vertex-sdk` |
+
+Both authenticate through Application Default Credentials, but pi-ai's `google-vertex` provider does not expose Claude. Use this extension for Claude on Vertex; use the built-in provider for Gemini on Vertex.
+
 ## Quick start
 
 1. Install the package:
@@ -99,7 +110,7 @@ If your organization uses custom roles or stricter IAM, make sure the principal 
 | Extension version | pi namespace |
 |---|---|
 | `0.1.x` | `@mariozechner/*` (pi 0.73.x) — frozen |
-| `0.2.x` (current) | `@earendil-works/*` (pi 0.75.x+) |
+| `0.2.x` and newer (current: `0.6.x`) | `@earendil-works/*` (pi 0.75.x+) |
 
 See [CHANGELOG.md](./CHANGELOG.md) for the rename details.
 
@@ -171,8 +182,10 @@ pi --list-models | grep vertex-anthropic
 Expected output:
 
 ```
+vertex-anthropic  claude-fable-5                         1M       128K     yes       yes
 vertex-anthropic  claude-haiku-4-5@20251001              200K     64K      yes       yes
 vertex-anthropic  claude-opus-4-7                        1M       128K     yes       yes
+vertex-anthropic  claude-opus-4-8                        1M       128K     yes       yes
 vertex-anthropic  claude-sonnet-4-6                      1M       64K      yes       yes
 ```
 
@@ -254,14 +267,14 @@ Model IDs are taken verbatim from [Anthropic's Vertex AI docs](https://platform.
 | Claude Opus 4.8 | `claude-opus-4-8` | 1M | 128K | adaptive (effort) | ✅ |
 | Claude Sonnet 4.6 | `claude-sonnet-4-6` | 1M | 64K | adaptive (effort) | clamped to `high` |
 | Claude Haiku 4.5 | `claude-haiku-4-5@20251001` | 200K | 64K | extended (budget) | — |
-| Claude Fable 5 | `claude-fable-5` | 200K | 64K | adaptive (effort) | clamped to `high` |
+| Claude Fable 5 | `claude-fable-5` | 1M | 128K | adaptive (effort) | ✅ |
 
-> **Provisional entries.** `claude-opus-4-8` and `claude-fable-5` are listed in the Vertex Model Garden catalog with `versionId: default` (no dated `@YYYYMMDD` alias yet). Their pricing, context window, and thinking config are best-effort placeholders modeled on the closest released sibling — revisit once Anthropic publishes the model cards.
+> **Vertex versioning.** `claude-opus-4-8` and `claude-fable-5` are listed in the Vertex Model Garden catalog with `versionId: default` (no dated `@YYYYMMDD` alias yet). Pricing and limits here match Anthropic's published model cards (Opus-tier `$5` / `$25` per MTok; Fable-tier `$10` / `$50`); the `default` versionId is the only Vertex-specific caveat.
 
 pi maps thinking levels automatically:
 
-- **Opus 4.7, Opus 4.8** (adaptive, with `xhigh`): `--thinking low|medium|high|xhigh` becomes the SDK's `effort` parameter directly.
-- **Sonnet 4.6, Fable 5** (adaptive, no `xhigh` slot): `low|medium|high` pass through; `xhigh` is clamped to `high` so Anthropic's API doesn't 400 the request. Matches upstream pi-ai's `mapThinkingLevelToEffort` fallback when a model's `thinkingLevelMap` lacks an `xhigh` entry.
+- **Opus 4.7, Opus 4.8, Fable 5** (adaptive, with `xhigh`): `--thinking low|medium|high|xhigh` becomes the SDK's `effort` parameter directly.
+- **Sonnet 4.6** (adaptive, no `xhigh` slot): `low|medium|high` pass through; `xhigh` is clamped to `high` so Anthropic's API doesn't 400 the request. Matches upstream pi-ai's `mapThinkingLevelToEffort` fallback when a model's `thinkingLevelMap` lacks an `xhigh` entry.
 - **Haiku 4.5** (extended/budgeted thinking): pi thinking levels map to `thinkingBudgetTokens` using the default budgets (1k / 4k / 10k / 20k / 32k for `minimal`/`low`/`medium`/`high`/`xhigh`) or your `settings.thinkingBudgets` overrides. See pi's [`thinkingBudgets` settings docs](https://github.com/earendil-works/pi-coding-agent/blob/main/docs/settings.md#thinkingbudgets) for the exact shape. The extension grows `max_tokens` (capped at the model maximum) to absorb the budget — mirroring upstream's `adjustMaxTokensForThinking` — so `--max-tokens 4000 --thinking high` won't violate Anthropic's `budget_tokens < max_tokens` constraint.
 
 ## Security notes
@@ -275,7 +288,7 @@ pi maps thinking levels automatically:
 
 ## How it works
 
-The extension is a thin shim (~200 lines):
+The extension is a single-file shim (~650 lines, a large share of it explanatory comments):
 
 1. **Auth.** `oauth.login` calls `new GoogleAuth().getClient()` from `google-auth-library`. If credentials are available, it stores a sentinel credential in `~/.pi/agent/auth.json` and revalidates daily via `oauth.refreshToken`. Real per-request access token refresh is handled by `google-auth-library` inside the SDK.
 2. **Streaming.** `streamSimple` constructs an `AnthropicVertex` client (cached by project and region) and injects it into pi-ai's built-in `streamAnthropic` via its `client` option. All message conversion, SSE parsing, tool-call handling, prompt caching, and thinking-block plumbing come from upstream pi-ai unchanged.
