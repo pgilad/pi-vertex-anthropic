@@ -48,7 +48,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/vertex-sdk": "^0.17.1"
+    "@anthropic-ai/vertex-sdk": "^0.18.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.75.0",
@@ -56,9 +56,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
-    "@earendil-works/pi-ai": "^0.79.4",
-    "@earendil-works/pi-coding-agent": "^0.79.4",
-    "@types/node": "^25.9.3",
+    "@earendil-works/pi-ai": "^0.80.2",
+    "@earendil-works/pi-coding-agent": "^0.80.2",
+    "@types/node": "^26.0.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },
