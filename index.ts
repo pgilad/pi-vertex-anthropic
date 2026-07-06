@@ -34,6 +34,7 @@ import {
 	type Api,
 	type AssistantMessageEventStream,
 	type Context,
+	createAssistantMessageEventStream,
 	type Model,
 	type OAuthCredentials,
 	type OAuthLoginCallbacks,
@@ -153,15 +154,23 @@ export function regionFromEnv(): string | undefined {
 let _credCache: { projectId?: string; region?: string } | undefined;
 
 /**
- * Clear the cached auth.json read. Production-callable: the per-process cache
+ * Clear cached auth state. Production-callable: the per-process cache
  * (see above) assumes pi reloads the module after /login or /logout. If that
  * assumption ever stops holding, call this to force the next resolution to
  * re-read auth.json. `/login` and `refreshAdc` call it after successful ADC
  * probes, so staleness in a long-lived process is bounded to the next auth
  * validation.
+ *
+ * Also evicts the cached AnthropicVertex clients (see clientCache below): each
+ * holds a google-auth-library auth instance bound to the credential state at
+ * construction time. After /login or the daily refreshAdc re-probes ADC, the
+ * next request must rebuild against current credentials — otherwise a stale
+ * client keeps failing token refresh (OAuth fetch error) until pi is
+ * restarted.
  */
 export function resetCredentialCache(): void {
 	_credCache = undefined;
+	clientCache.clear();
 }
 
 /** @internal — back-compat alias used by the test suite. */
@@ -212,7 +221,8 @@ export function resolveRegion(): string {
 
 const clientCache = new Map<string, AnthropicVertex>();
 
-function getVertexClient(): AnthropicVertex {
+/** @internal — exported for tests: verify cache eviction rebuilds the client. */
+export function getVertexClient(): AnthropicVertex {
 	const projectId = resolveProjectId();
 	const region = resolveRegion();
 	const key = `${projectId}|${region}`;
@@ -530,17 +540,87 @@ export function buildAnthropicOptions(model: Model<Api>, options?: SimpleStreamO
 	return opts;
 }
 
+// How many times to rebuild the Vertex client and retry after an auth error
+// before giving up and surfacing the failure. One retry is enough: the retry
+// runs against a freshly-constructed client that re-reads current ADC.
+const MAX_AUTH_RETRIES = 1;
+
+/**
+ * Heuristic: does this streamAnthropic error message indicate stale / expired
+ * credentials, such that rebuilding the AnthropicVertex client (which re-reads
+ * ADC via google-auth-library) has a chance of fixing it?
+ *
+ * These are the strings google-auth-library / the Vertex endpoint surface when
+ * a refresh token has expired, been revoked, or been rotated out from under a
+ * long-lived in-memory client. Deliberately narrow: a permissions error
+ * (403 / PERMISSION_DENIED) is NOT included — rebuilding the client can't fix
+ * an IAM problem, so retrying there just wastes a request.
+ *
+ * Exported for tests.
+ */
+export function isRetryableAuthError(message: string | undefined): boolean {
+	if (!message) return false;
+	return /invalid_grant|invalid_rt|reauth|refresh.*access token|could not refresh|expired or revoked|unauthenticated|\b401\b|could not load the default credentials|application default credentials/i.test(
+		message,
+	);
+}
+
 function streamSimple(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const opts = buildAnthropicOptions(model, options);
-	// AnthropicVertex extends the same BaseAnthropic class but our copy of
-	// @anthropic-ai/sdk lives in a different node_modules path than pi-ai's
-	// nested copy. ECMAScript private fields (#private) are nominal across
-	// module instances even when the classes are structurally identical, so
-	// `as unknown as Anthropic` won't satisfy tsc. Runtime is fine — both
-	// classes share the same shape and the streaming API path doesn't touch
-	// any private state.
-	opts.client = getVertexClient() as unknown as AnthropicOptions["client"];
-	return streamAnthropic(asAnthropicMessagesModel(model), context, opts);
+	const anthropicModel = asAnthropicMessagesModel(model);
+
+	// Wrapper stream we drive ourselves so we can transparently rebuild the
+	// Vertex client and retry once on an auth error. Without this, a client
+	// whose cached refresh token has gone stale (ADC rotated mid-session) keeps
+	// failing every request until the next /login or the daily refreshAdc clears
+	// clientCache — a window that can be nearly 24h wide when pi's refresh timer
+	// and the real credential lifetime drift out of phase. Retrying on the
+	// actual failure is phase-independent: the trigger coincides exactly with
+	// the moment the creds went stale.
+	const out = createAssistantMessageEventStream();
+
+	(async () => {
+		for (let attempt = 0; ; attempt++) {
+			// AnthropicVertex extends the same BaseAnthropic class but our copy of
+			// @anthropic-ai/sdk lives in a different node_modules path than pi-ai's
+			// nested copy. ECMAScript private fields (#private) are nominal across
+			// module instances even when the classes are structurally identical, so
+			// `as unknown as Anthropic` won't satisfy tsc. Runtime is fine — both
+			// classes share the same shape and the streaming API path doesn't touch
+			// any private state.
+			opts.client = getVertexClient() as unknown as AnthropicOptions["client"];
+			const inner = streamAnthropic(anthropicModel, context, opts);
+
+			let forwardedAny = false;
+			let retrying = false;
+			for await (const event of inner) {
+				// An auth failure surfaces as a terminal `error` event BEFORE any
+				// content is streamed (streamAnthropic pushes `start` only after the
+				// network call that injects the token succeeds). So we only retry
+				// when the very first event is a retryable auth error — never
+				// mid-stream, which would risk double-emitting content downstream.
+				if (
+					!forwardedAny &&
+					attempt < MAX_AUTH_RETRIES &&
+					event.type === "error" &&
+					isRetryableAuthError(event.error.errorMessage)
+				) {
+					// Drop the stale client so the next attempt rebuilds from current ADC.
+					resetCredentialCache();
+					retrying = true;
+					break;
+				}
+				forwardedAny = true;
+				out.push(event);
+			}
+
+			if (retrying) continue;
+			break;
+		}
+		out.end();
+	})();
+
+	return out;
 }
 
 /**
