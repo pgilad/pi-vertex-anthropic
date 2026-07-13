@@ -48,7 +48,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/vertex-sdk": "^0.17.1"
+    "@anthropic-ai/vertex-sdk": "^0.19.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.75.0",
@@ -56,10 +56,10 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
-    "@earendil-works/pi-ai": "^0.79.4",
-    "@earendil-works/pi-coding-agent": "^0.79.4",
-    "@types/node": "^25.9.3",
-    "typescript": "^6.0.3",
+    "@earendil-works/pi-ai": "^0.80.6",
+    "@earendil-works/pi-coding-agent": "^0.80.6",
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.9"
   },
   "//": "overrides.uuid pins a single modern uuid (v11) across the transitive tree (@anthropic-ai/vertex-sdk -> google-auth-library -> gaxios -> uuid). Safeguard against an older duplicate being deduped in; revisit when that chain no longer needs it.",
