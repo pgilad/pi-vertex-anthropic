@@ -8,6 +8,7 @@ import extension, {
 	asAnthropicMessagesModel,
 	buildAnthropicOptions,
 	credentialFromAuthJson,
+	isAdaptiveThinkingModel,
 	resetCredentialCache,
 } from "../index.ts";
 
@@ -64,7 +65,7 @@ function fakeClient(capture: { params?: any }) {
 }
 
 describe("provider registration", () => {
-	it("registers the vertex-anthropic provider with oauth + 5 models", () => {
+	it("registers the vertex-anthropic provider with oauth + 11 models", () => {
 		const { name, config } = register();
 		expect(name).toBe("vertex-anthropic");
 		expect(config.api).toBe("vertex-anthropic");
@@ -75,8 +76,31 @@ describe("provider registration", () => {
 
 		const ids = config.models.map((m: { id: string }) => m.id).sort();
 		expect(ids).toEqual(
-			["claude-fable-5", "claude-haiku-4-5@20251001", "claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-4-6"].sort(),
+			[
+				"claude-fable-5",
+				"claude-fable-5-1",
+				"claude-haiku-4-5@20251001",
+				"claude-opus-4-6",
+				"claude-opus-4-7",
+				"claude-opus-4-8",
+				"claude-opus-5",
+				"claude-opus-5-5",
+				"claude-sonnet-4-6",
+				"claude-sonnet-5",
+				"claude-sonnet-5-5",
+			].sort(),
 		);
+	});
+
+	it("maps every registered non-budget model through ADAPTIVE_THINKING (drift guard)", () => {
+		// Haiku 4.5 is the only budget-based entry; everything else must be in the
+		// adaptive table or its reasoning requests 400 on Vertex.
+		const { config } = register();
+		const budgetBased = new Set(["claude-haiku-4-5@20251001"]);
+		for (const m of config.models as Array<{ id: string }>) {
+			if (budgetBased.has(m.id)) continue;
+			expect(isAdaptiveThinkingModel(m.id)).toBe(true);
+		}
 	});
 
 	it("registers fable-5 with corrected pricing, limits, and xhigh metadata", () => {
@@ -93,6 +117,65 @@ describe("provider registration", () => {
 		const opus = config.models.find((m: { id: string }) => m.id === "claude-opus-4-8");
 		expect(opus.cost).toEqual({ input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 });
 		expect(opus.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
+	});
+
+	it("registers opus-5 at Opus-tier pricing with xhigh and the registry's off gap", () => {
+		const { config } = register();
+		const opus = config.models.find((m: { id: string }) => m.id === "claude-opus-5");
+		expect(opus.contextWindow).toBe(1_000_000);
+		expect(opus.maxTokens).toBe(128_000);
+		expect(opus.cost).toEqual({ input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 });
+		expect(opus.thinkingLevelMap).toEqual({ off: null, xhigh: "xhigh" });
+	});
+
+	it("registers sonnet-5 with Sonnet 5 pricing, limits, and xhigh metadata", () => {
+		const { config } = register();
+		const sonnet = config.models.find((m: { id: string }) => m.id === "claude-sonnet-5");
+		expect(sonnet.contextWindow).toBe(1_000_000);
+		expect(sonnet.maxTokens).toBe(128_000);
+		expect(sonnet.cost).toEqual({ input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 });
+		expect(sonnet.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
+	});
+
+	it("registers Opus 5.5 with Opus 5.5 pricing, xhigh, and the registry's off/minimal gaps", () => {
+		const { config } = register();
+		const opus = config.models.find((m: { id: string }) => m.id === "claude-opus-5-5");
+		expect(opus.contextWindow).toBe(1_000_000);
+		expect(opus.maxTokens).toBe(128_000);
+		expect(opus.cost).toEqual({ input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 });
+		expect(opus.thinkingLevelMap).toEqual({ off: null, minimal: null, xhigh: "xhigh" });
+	});
+
+	it("registers Sonnet 5.5 with Sonnet-tier pricing and the registry's off/minimal gaps", () => {
+		const { config } = register();
+		const sonnet = config.models.find((m: { id: string }) => m.id === "claude-sonnet-5-5");
+		expect(sonnet.cost).toEqual({ input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 });
+		expect(sonnet.thinkingLevelMap).toEqual({ off: null, minimal: null, xhigh: "xhigh" });
+	});
+
+	it("registers Fable 5.1 at Fable-tier pricing with its cheaper cache read", () => {
+		const { config } = register();
+		const fable = config.models.find((m: { id: string }) => m.id === "claude-fable-5-1");
+		expect(fable.contextWindow).toBe(1_000_000);
+		expect(fable.maxTokens).toBe(128_000);
+		expect(fable.cost).toEqual({ input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 });
+		expect(fable.thinkingLevelMap).toEqual({ off: null, xhigh: "xhigh" });
+	});
+
+	it("registers Opus 4.6 as adaptive without an xhigh slot (like Sonnet 4.6)", () => {
+		const { config } = register();
+		const opus = config.models.find((m: { id: string }) => m.id === "claude-opus-4-6");
+		expect(opus.maxTokens).toBe(128_000);
+		expect(opus.cost).toEqual({ input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 });
+		expect(opus.thinkingLevelMap).toBeUndefined();
+	});
+
+	it("registers Sonnet 4.6 with its real 128K output limit", () => {
+		// Was registered at 64K; Vertex accepts 128000 and rejects 128001.
+		const { config } = register();
+		const sonnet = config.models.find((m: { id: string }) => m.id === "claude-sonnet-4-6");
+		expect(sonnet.contextWindow).toBe(1_000_000);
+		expect(sonnet.maxTokens).toBe(128_000);
 	});
 });
 
@@ -134,6 +217,44 @@ describe("Anthropic Messages stream contract (no network)", () => {
 		expect(capture.params.model).toBe("claude-fable-5");
 		expect(capture.params.thinking.type).toBe("adaptive");
 		expect(capture.params.output_config).toEqual({ effort: "xhigh" });
+		expect(events.some((e) => e.type === "error")).toBe(true);
+	});
+
+	it("drives Sonnet 5 through pi-ai as adaptive thinking with xhigh effort", async () => {
+		const { config } = register();
+		const model = modelById(config, "claude-sonnet-5");
+		const capture: { params?: ProviderConfig } = {};
+		const opts = buildAnthropicOptions(model, { reasoning: "xhigh" });
+		opts.client = fakeClient(capture) as unknown as typeof opts.client;
+
+		const events: Array<{ type: string }> = [];
+		for await (const ev of anthropicMessages.stream(asAnthropicMessagesModel(model), CONTEXT, opts)) {
+			events.push(ev);
+		}
+
+		expect(capture.params.model).toBe("claude-sonnet-5");
+		expect(capture.params.thinking.type).toBe("adaptive");
+		expect(capture.params.output_config).toEqual({ effort: "xhigh" });
+		expect(capture.params.stream).toBe(true);
+		expect(events.some((e) => e.type === "error")).toBe(true);
+	});
+
+	it("drives Opus 5 through pi-ai as adaptive thinking with xhigh effort", async () => {
+		const { config } = register();
+		const model = modelById(config, "claude-opus-5");
+		const capture: { params?: ProviderConfig } = {};
+		const opts = buildAnthropicOptions(model, { reasoning: "xhigh" });
+		opts.client = fakeClient(capture) as unknown as typeof opts.client;
+
+		const events: Array<{ type: string }> = [];
+		for await (const ev of anthropicMessages.stream(asAnthropicMessagesModel(model), CONTEXT, opts)) {
+			events.push(ev);
+		}
+
+		expect(capture.params.model).toBe("claude-opus-5");
+		expect(capture.params.thinking.type).toBe("adaptive");
+		expect(capture.params.output_config).toEqual({ effort: "xhigh" });
+		expect(capture.params.stream).toBe(true);
 		expect(events.some((e) => e.type === "error")).toBe(true);
 	});
 

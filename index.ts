@@ -412,7 +412,8 @@ async function refreshAdc(credentials: OAuthCredentials, signal?: AbortSignal): 
 //
 // Two thinking shapes coexist in Anthropic's Messages API:
 //
-//   1. ADAPTIVE THINKING (Opus 4.7 / 4.8, Sonnet 4.6, Fable 5):
+//   1. ADAPTIVE THINKING (Opus 4.6 / 4.7 / 4.8 / 5 / 5.5, Sonnet 4.6 / 5 / 5.5,
+//      Fable 5 / 5.1):
 //      `thinking: { type: "adaptive" }` + `output_config.effort`. The model
 //      decides when/how much to think; pi maps `reasoning` → an effort string
 //      (low / medium / high / xhigh).
@@ -441,20 +442,33 @@ type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
  * level `xhigh`. Omit it to clamp `xhigh` down to `high` (matching upstream
  * pi-ai's `mapThinkingLevelToEffort` fallback).
  *
- *   • Opus 4.7 / 4.8 and Fable 5 — adaptive with xhigh. We map xhigh →
- *     "xhigh" to match pi-ai's built-in registry, which ships
- *     `thinkingLevelMap: { xhigh: "xhigh" }` for these models. (The SDK also
- *     exposes a stronger "max" effort value for older Opus models, but pi-ai's
- *     own registry never selects it here — staying in sync avoids drift.)
- *   • Sonnet 4.6 — adaptive WITHOUT xhigh. Upstream pi-ai's built-in entry
- *     for `claude-sonnet-4-6` ships no `thinkingLevelMap`, so `xhigh` is
+ *   • Opus 4.7 / 4.8 / 5 / 5.5, Sonnet 5 / 5.5, and Fable 5 / 5.1 — adaptive
+ *     with xhigh. We map xhigh → "xhigh" to match pi-ai's built-in registry,
+ *     which ships `thinkingLevelMap: { xhigh: "xhigh" }` for these models.
+ *   • Opus 4.6 and Sonnet 4.6 — adaptive WITHOUT an xhigh slot. pi-ai's
+ *     built-in entry ships only `{ max: "max" }` for them, so `xhigh` is
  *     rejected by the API and we clamp to `high`.
+ *
+ * Membership is not a judgement call: it mirrors upstream pi-ai's registry
+ * (`dist/providers/data/anthropic.json`), where every one of these models
+ * carries `compat.forceAdaptiveThinking: true`. A model missing from this table
+ * falls through to legacy budget-based thinking, which Vertex rejects with
+ * HTTP 400 for the whole Claude 5 family.
+ *
+ * The registry's newer `max` level is deliberately not declared: the pinned
+ * pi-ai level set ends at `xhigh`, so pi never offers `max` for these models.
  */
 const ADAPTIVE_THINKING: Record<string, { xhigh?: "xhigh" | "max" }> = {
+	"claude-opus-4-6": {},
 	"claude-opus-4-7": { xhigh: "xhigh" },
 	"claude-opus-4-8": { xhigh: "xhigh" },
+	"claude-opus-5": { xhigh: "xhigh" },
+	"claude-opus-5-5": { xhigh: "xhigh" },
 	"claude-sonnet-4-6": {},
+	"claude-sonnet-5": { xhigh: "xhigh" },
+	"claude-sonnet-5-5": { xhigh: "xhigh" },
 	"claude-fable-5": { xhigh: "xhigh" },
+	"claude-fable-5-1": { xhigh: "xhigh" },
 };
 
 function stripVersion(modelId: string): string {
@@ -674,6 +688,66 @@ export default function (pi: ExtensionAPI) {
 		// https://platform.claude.com/docs/en/about-claude/models/overview
 		models: [
 			{
+				// Upstream marks `off` unsupported for this model, so pi does not
+				// offer it.
+				id: "claude-opus-5",
+				name: "Claude Opus 5 (Vertex)",
+				reasoning: true, // adaptive thinking; effort: low/medium/high/xhigh
+				thinkingLevelMap: { off: null, xhigh: "xhigh" },
+				input: ["text", "image"],
+				contextWindow: 1_000_000,
+				maxTokens: 128_000,
+				cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+			},
+			{
+				// Adaptive-only on Vertex: `thinking.type=enabled` is rejected with
+				// HTTP 400 ("not supported for this model"), live-verified at region
+				// eu, so it must stay in ADAPTIVE_THINKING or every reasoning
+				// request fails. Pricing/limits from Anthropic's model card, mirrored
+				// by pi-ai's registry: $4 / $20 per MTok (cheaper than Opus 5),
+				// cache read 0.2×, 5-min cache write 1.25×; 1M context, 128K max
+				// output. Upstream marks `off` and `minimal` unsupported for this
+				// model, so pi does not offer them.
+				id: "claude-opus-5-5",
+				name: "Claude Opus 5.5 (Vertex)",
+				reasoning: true, // adaptive thinking; effort: low/medium/high/xhigh
+				thinkingLevelMap: { off: null, minimal: null, xhigh: "xhigh" },
+				input: ["text", "image"],
+				contextWindow: 1_000_000,
+				maxTokens: 128_000,
+				cost: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+			},
+			{
+				// Pricing and limits from Anthropic's published Sonnet 5 model
+				// card ($2 / $10 per MTok; cache read 0.1×, 5-min cache write
+				// 1.25×; 1M context, 128K max output). Vertex bills the same
+				// per-token rates. xhigh is enabled to match Anthropic/pi-ai
+				// model metadata.
+				id: "claude-sonnet-5",
+				name: "Claude Sonnet 5 (Vertex)",
+				reasoning: true, // adaptive thinking; effort: low/medium/high/xhigh
+				thinkingLevelMap: { xhigh: "xhigh" },
+				input: ["text", "image"],
+				contextWindow: 1_000_000,
+				maxTokens: 128_000,
+				cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+			},
+			{
+				// Sonnet-tier rates ($2 / $10 per MTok; cache read 0.2×, 5-min
+				// cache write 1.25×), 1M context, 128K max output. Adaptive-only on
+				// Vertex — legacy budget thinking returns HTTP 400 ("not supported
+				// for this model"), live-verified at region eu — and upstream marks
+				// `off` and `minimal` unsupported, so pi does not offer them.
+				id: "claude-sonnet-5-5",
+				name: "Claude Sonnet 5.5 (Vertex)",
+				reasoning: true, // adaptive thinking; effort: low/medium/high/xhigh
+				thinkingLevelMap: { off: null, minimal: null, xhigh: "xhigh" },
+				input: ["text", "image"],
+				contextWindow: 1_000_000,
+				maxTokens: 128_000,
+				cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+			},
+			{
 				id: "claude-opus-4-7",
 				name: "Claude Opus 4.7 (Vertex)",
 				reasoning: true, // adaptive thinking; effort: low/medium/high/xhigh
@@ -697,12 +771,28 @@ export default function (pi: ExtensionAPI) {
 				cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 			},
 			{
+				// Opus 4.6 is adaptive-only but, like Sonnet 4.6, has no `xhigh` slot
+				// in pi-ai's registry — its map carries only `max`, which the pinned
+				// pi-ai level set does not expose — so `xhigh` clamps to `high`.
+				// Opus-tier rates, 1M context, 128K max output.
+				id: "claude-opus-4-6",
+				name: "Claude Opus 4.6 (Vertex)",
+				reasoning: true, // adaptive thinking; effort: low/medium/high
+				input: ["text", "image"],
+				contextWindow: 1_000_000,
+				maxTokens: 128_000,
+				cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+			},
+			{
+				// Adaptive thinking without an xhigh slot; `max_tokens` is 128K on
+				// Vertex (128001 is rejected: "…is the maximum allowed number of
+				// output tokens for claude-sonnet-4-6"), matching pi-ai's registry.
 				id: "claude-sonnet-4-6",
 				name: "Claude Sonnet 4.6 (Vertex)",
 				reasoning: true, // adaptive thinking; effort: low/medium/high (no xhigh)
 				input: ["text", "image"],
 				contextWindow: 1_000_000,
-				maxTokens: 64_000,
+				maxTokens: 128_000,
 				cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
 			},
 			{
@@ -720,6 +810,19 @@ export default function (pi: ExtensionAPI) {
 				contextWindow: 1_000_000,
 				maxTokens: 128_000,
 				cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+			},
+			{
+				// Fable-tier rates ($10 / $50 per MTok) with a cheaper cache read
+				// than Fable 5 (0.25× vs 1×), 5-min cache write 1.25×; 1M context,
+				// 128K max output. Adaptive thinking only, exactly like Fable 5.
+				id: "claude-fable-5-1",
+				name: "Claude Fable 5.1 (Vertex)",
+				reasoning: true, // adaptive thinking; effort: low/medium/high/xhigh
+				thinkingLevelMap: { off: null, xhigh: "xhigh" },
+				input: ["text", "image"],
+				contextWindow: 1_000_000,
+				maxTokens: 128_000,
+				cost: { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
 			},
 			{
 				id: "claude-haiku-4-5@20251001",

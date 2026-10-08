@@ -184,10 +184,16 @@ Expected output:
 
 ```
 vertex-anthropic  claude-fable-5                         1M       128K     yes       yes
+vertex-anthropic  claude-fable-5-1                       1M       128K     yes       yes
 vertex-anthropic  claude-haiku-4-5@20251001              200K     64K      yes       yes
+vertex-anthropic  claude-opus-4-6                        1M       128K     yes       yes
 vertex-anthropic  claude-opus-4-7                        1M       128K     yes       yes
 vertex-anthropic  claude-opus-4-8                        1M       128K     yes       yes
-vertex-anthropic  claude-sonnet-4-6                      1M       64K      yes       yes
+vertex-anthropic  claude-opus-5                          1M       128K     yes       yes
+vertex-anthropic  claude-opus-5-5                        1M       128K     yes       yes
+vertex-anthropic  claude-sonnet-4-6                      1M       128K     yes       yes
+vertex-anthropic  claude-sonnet-5                        1M       128K     yes       yes
+vertex-anthropic  claude-sonnet-5-5                      1M       128K     yes       yes
 ```
 
 Smoke test:
@@ -253,29 +259,41 @@ If you need a specific region, confirm that the selected Claude model is availab
 Pick interactively with `/model`, or pass on the command line:
 
 ```bash
+pi --provider vertex-anthropic --model claude-opus-4-6
 pi --provider vertex-anthropic --model claude-opus-4-7
 pi --provider vertex-anthropic --model claude-opus-4-8
+pi --provider vertex-anthropic --model claude-opus-5
+pi --provider vertex-anthropic --model claude-opus-5-5
 pi --provider vertex-anthropic --model claude-sonnet-4-6
+pi --provider vertex-anthropic --model claude-sonnet-5
+pi --provider vertex-anthropic --model claude-sonnet-5-5
 pi --provider vertex-anthropic --model claude-haiku-4-5@20251001
 pi --provider vertex-anthropic --model claude-fable-5
+pi --provider vertex-anthropic --model claude-fable-5-1
 ```
 
 Model IDs are taken verbatim from [Anthropic's Vertex AI docs](https://platform.claude.com/docs/en/about-claude/models/overview) and the Vertex Model Garden catalog:
 
 | Model | Vertex AI ID | Context | Max output | Thinking | `xhigh` |
 |---|---|---|---|---|---|
+| Claude Opus 4.6 | `claude-opus-4-6` | 1M | 128K | adaptive (effort) | clamped to `high` |
 | Claude Opus 4.7 | `claude-opus-4-7` | 1M | 128K | adaptive (effort) | ✅ |
 | Claude Opus 4.8 | `claude-opus-4-8` | 1M | 128K | adaptive (effort) | ✅ |
-| Claude Sonnet 4.6 | `claude-sonnet-4-6` | 1M | 64K | adaptive (effort) | clamped to `high` |
+| Claude Opus 5 | `claude-opus-5` | 1M | 128K | adaptive (effort) | ✅ |
+| Claude Opus 5.5 | `claude-opus-5-5` | 1M | 128K | adaptive (effort) | ✅ |
+| Claude Sonnet 4.6 | `claude-sonnet-4-6` | 1M | 128K | adaptive (effort) | clamped to `high` |
+| Claude Sonnet 5 | `claude-sonnet-5` | 1M | 128K | adaptive (effort) | ✅ |
+| Claude Sonnet 5.5 | `claude-sonnet-5-5` | 1M | 128K | adaptive (effort) | ✅ |
 | Claude Haiku 4.5 | `claude-haiku-4-5@20251001` | 200K | 64K | extended (budget) | — |
 | Claude Fable 5 | `claude-fable-5` | 1M | 128K | adaptive (effort) | ✅ |
+| Claude Fable 5.1 | `claude-fable-5-1` | 1M | 128K | adaptive (effort) | ✅ |
 
 > **Vertex versioning.** `claude-opus-4-8` and `claude-fable-5` are listed in the Vertex Model Garden catalog with `versionId: default` (no dated `@YYYYMMDD` alias yet). Pricing and limits here match Anthropic's published model cards (Opus-tier `$5` / `$25` per MTok; Fable-tier `$10` / `$50`); the `default` versionId is the only Vertex-specific caveat.
 
 pi maps thinking levels automatically:
 
-- **Opus 4.7, Opus 4.8, Fable 5** (adaptive, with `xhigh`): `--thinking low|medium|high|xhigh` becomes the SDK's `effort` parameter directly.
-- **Sonnet 4.6** (adaptive, no `xhigh` slot): `low|medium|high` pass through; `xhigh` is clamped to `high` so Anthropic's API doesn't 400 the request. Matches upstream pi-ai's `mapThinkingLevelToEffort` fallback when a model's `thinkingLevelMap` lacks an `xhigh` entry.
+- **Opus 4.7, Opus 4.8, Opus 5, Opus 5.5, Sonnet 5, Sonnet 5.5, Fable 5, Fable 5.1** (adaptive, with `xhigh`): `--thinking low|medium|high|xhigh` becomes the SDK's `effort` parameter directly.
+- **Opus 4.6 and Sonnet 4.6** (adaptive, no `xhigh` slot): `low|medium|high` pass through; `xhigh` is clamped to `high` so Anthropic's API doesn't 400 the request. Matches upstream pi-ai's `mapThinkingLevelToEffort` fallback when a model's `thinkingLevelMap` lacks an `xhigh` entry.
 - **Haiku 4.5** (extended/budgeted thinking): pi thinking levels map to `thinkingBudgetTokens` using the default budgets (1k / 4k / 10k / 20k / 32k for `minimal`/`low`/`medium`/`high`/`xhigh`) or your `settings.thinkingBudgets` overrides. See pi's [`thinkingBudgets` settings docs](https://github.com/earendil-works/pi-coding-agent/blob/main/docs/settings.md#thinkingbudgets) for the exact shape. The extension grows `max_tokens` (capped at the model maximum) to absorb the budget — mirroring upstream's `adjustMaxTokensForThinking` — so `--max-tokens 4000 --thinking high` won't violate Anthropic's `budget_tokens < max_tokens` constraint.
 
 ## Security notes
