@@ -8,6 +8,15 @@ import { register, registeredModel } from "./helpers.ts";
 // the extension must not load the Vertex SDK until a request needs it.
 const loaded = vi.hoisted(() => ({ vertex: 0, fail: false }));
 
+// The developer's real ADC must not decide the outcome of the second request.
+vi.mock("google-auth-library", () => ({
+	GoogleAuth: class {
+		async getClient() {
+			return { getRequestHeaders: async () => new Headers({ authorization: "Bearer test" }) };
+		}
+	},
+}));
+
 vi.mock("@anthropic-ai/vertex-sdk", async (importOriginal) => {
 	loaded.vertex++;
 	if (loaded.fail) throw new Error("Cannot find package '@anthropic-ai/vertex-sdk'");
