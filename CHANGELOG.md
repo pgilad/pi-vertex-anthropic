@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The `max` thinking level for every adaptive model, as in pi-ai's registry. Vertex accepts `effort: max` for all of them that the test project could call.
+- Prompt cache lifetimes for the adaptive models, so pi keeps their prompt cache warm (see pi's `cacheWarming` setting). Vertex honors both cache TTLs. Haiku 4.5 gets none: pi's cache-warming replay would change its thinking budget.
+- The mid-conversation compat flags from pi-ai's registry (Opus 4.8, 5, and 5.5, Sonnet 5.5, Fable 5 and 5.1). A tool, prompt, or thinking level change during a session now keeps the cached prompt prefix.
+
+### Changed
+
+- Requests are built the way pi's built-in Anthropic provider builds them. For Haiku 4.5 this means pi-ai's default thinking budgets, which are smaller than the extension's were, and `xhigh` uses the `high` budget. `test/parity.test.ts` sends the same requests through both and fails when they differ.
+- Requests take the project and region from the credential that pi passes to the provider (`oauth.getApiKey`), instead of reading pi's `auth.json`. A new `/login` takes effect on the next request, and a custom `PI_CODING_AGENT_DIR` no longer matters. The environment variables still come first.
+- The Vertex SDK and `google-auth-library` load on the first request, not at pi startup.
+- Requires Node.js 22.19 or newer, as pi does (was 24).
+- The code is split into modules under `src/`, and the provider types come from `@earendil-works/pi-coding-agent` (a type-only import, so the peer dependency stays optional).
+- The release workflow publishes only from a `v*` tag that matches `package.json`.
+
+### Fixed
+
+- Requests with a `temperature` and thinking off no longer fail with HTTP 400 on Opus 4.7, 4.8, and 5 and Sonnet 5 ("`temperature` is deprecated for this model"). pi-ai now leaves `temperature` out for these models. For Sonnet 5 this differs from pi-ai's registry, which allows it.
+
+### Not adopted from pi-ai's registry
+
+- Strict tool schemas (`supportsStrictTools`). Vertex treats them as the `structured_outputs` partner-model feature, which an organization policy (`constraints/vertexai.allowedPartnerModelFeatures`) can disallow. Every request with pi's tools then fails with HTTP 400.
+- Fable 5's server-side fallback models, which name the direct Anthropic provider.
+
+### Tests / tooling
+
+- `test/registry.test.ts` compares every model with pi-ai's anthropic registry and lists the deliberate differences. It replaces the per-model metadata tests.
+- `test/stream-behavior.test.ts` covers responses, tool calls, usage and cost, abort, context overflow (with Vertex's real error body), malformed streams, and split multi-byte characters.
+- CI runs on pull requests, and a second job runs the type check and the tests with pi 1.0.0 (the `peerDependencies` floor) on Node 22.19.0.
+
 ## 0.8.0 — 2026-10-08
 
 ### Added

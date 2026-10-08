@@ -322,7 +322,7 @@ The extension builds each request the way pi's built-in Anthropic provider does.
 `index.ts` registers the provider. The code is in `src/`: `resolution.ts` (project and region), `login.ts` (`/login` and refresh), `client.ts` (the Vertex client), `thinking.ts` and `stream.ts` (request options and streaming), and `models.ts` (the model list).
 
 1. **Auth.** `oauth.login` calls `new GoogleAuth().getClient()` from `google-auth-library`. If credentials are available, pi stores a sentinel credential with the project and region in its auth storage and revalidates it daily via `oauth.refreshToken`. pi hands the project and region back with each request: `oauth.getApiKey` turns the stored credential into the `apiKey` that pi passes to `streamSimple`. The extension does not read pi's `auth.json`. Real per-request access token refresh is handled by `google-auth-library` inside the SDK; if a token request fails, the extension reads ADC again and tries once more, so changed ADC needs no restart.
-2. **Streaming.** `streamSimple` constructs an `AnthropicVertex` client (cached by project and region) and injects it into pi-ai's built-in Anthropic Messages implementation (`anthropicMessagesApi().stream` from `@earendil-works/pi-ai/compat`) via its `client` option. All message conversion, SSE parsing, tool-call handling, prompt caching, and thinking-block plumbing come from upstream pi-ai unchanged.
+2. **Streaming.** `streamSimple` constructs an `AnthropicVertex` client (cached by project and region) and injects it into pi-ai's built-in Anthropic Messages implementation (`anthropicMessagesApi().stream` from `@earendil-works/pi-ai/compat`) via its `client` option. The Vertex SDK and `google-auth-library` load on the first request, so they do not slow down pi's startup. All message conversion, SSE parsing, tool-call handling, prompt caching, and thinking-block plumbing come from upstream pi-ai unchanged. pi-ai's own `streamSimple` does not accept a `client`, so the extension maps the request options itself, the same way; `test/parity.test.ts` compares the two.
 
 No subprocess calls, no hand-rolled SSE parser, no Anthropic Messages reimplementation.
 
@@ -337,7 +337,11 @@ No subprocess calls, no hand-rolled SSE parser, no Anthropic Messages reimplemen
 ```bash
 npm install
 npm run check    # tsc --noEmit
+npm run lint     # biome
+npm test         # vitest
 ```
+
+CI also runs the type check and the tests with the oldest pi that `peerDependencies` accepts, on the oldest Node that `engines` accepts.
 
 Local iteration without reinstalling:
 
