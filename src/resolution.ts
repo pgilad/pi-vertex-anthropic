@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
-import { resetVertexClients } from "./client.ts";
+import type { OAuthCredentials } from "@earendil-works/pi-ai/compat";
 
 // =============================================================================
 // Project / region resolution (ADC-aware)
@@ -10,7 +10,8 @@ import { resetVertexClients } from "./client.ts";
 //
 //   resolveProjectId / resolveRegion  — used at request time (per-stream).
 //                                       Chain: env override → stored credential
-//                                       (set at /login) → ADC file → throw.
+//                                       (set at /login, handed over by pi as
+//                                       the API key) → ADC file → throw.
 //
 //   probeAdcProject / chooseRegionAtLogin
 //                                     — used at /login time. Does NOT read the
@@ -77,50 +78,49 @@ export function regionFromEnv(): string | undefined {
 	return region && REGION_RE.test(region) ? region : undefined;
 }
 
-// Cached read of our stored credential. Pi rewrites auth.json on /login or
-// /logout, after which a pi restart loads a fresh module instance — so a
-// per-process cache is sufficient and avoids re-reading the file on every
-// request. PI_CODING_AGENT_DIR matches pi's own settings resolution.
-let _credCache: { projectId?: string; region?: string } | undefined;
-
-/**
- * Clear the cached auth.json read and the cached Vertex clients.
- * Production-callable: the per-process cache (see above) assumes pi reloads the
- * module after /login or /logout. If that assumption ever stops holding, call
- * this to force the next resolution to re-read auth.json. `/login` and
- * `refreshAdc` call it after successful ADC probes, so staleness in a
- * long-lived process is bounded to the next auth validation. The next request
- * also builds a new Vertex client, which reads ADC again: that picks up a
- * changed ADC account even while the old credential still works, which
- * reloadingAuthClient() can't see.
- */
-export function resetCredentialCache(): void {
-	_credCache = undefined;
-	resetVertexClients();
+/** The project and region that /login stored on the credential. */
+export interface StoredTarget {
+	projectId?: string;
+	region?: string;
 }
 
-export function credentialFromAuthJson(): { projectId?: string; region?: string } {
-	if (_credCache) return _credCache;
-	_credCache = {};
+/**
+ * The API key pi passes to streamSimple: the stored project and region.
+ *
+ * pi calls oauth.getApiKey() with the stored credential and passes the result
+ * to streamSimple as options.apiKey. The AnthropicVertex client does its own
+ * auth, so the key is free to carry the target. This way the extension does
+ * not read pi's private auth.json, and a new /login takes effect on the next
+ * request.
+ */
+export function apiKeyFromCredential(credentials: OAuthCredentials): string {
+	const target: StoredTarget = {
+		projectId: typeof credentials.projectId === "string" ? credentials.projectId : undefined,
+		region: typeof credentials.region === "string" ? credentials.region : undefined,
+	};
+	return JSON.stringify(target);
+}
+
+/**
+ * Read the target back from options.apiKey. Any other key, for example one from
+ * `pi --api-key`, gives an empty target, so the env vars and the ADC file
+ * decide.
+ */
+export function targetFromApiKey(apiKey: string | undefined): StoredTarget {
+	if (!apiKey?.startsWith("{")) return {};
 	try {
-		const agentDir = process.env.PI_CODING_AGENT_DIR?.trim() || join(homedir(), ".pi", "agent");
-		const authPath = join(agentDir, "auth.json");
-		if (!existsSync(authPath)) return _credCache;
-		const auth = JSON.parse(readFileSync(authPath, "utf8")) as Record<string, unknown>;
-		const cred = auth["vertex-anthropic"] as { type?: unknown; projectId?: unknown; region?: unknown } | undefined;
-		if (cred?.type !== "oauth") return _credCache;
-		_credCache = {
-			projectId: typeof cred.projectId === "string" ? cred.projectId : undefined,
-			region: typeof cred.region === "string" ? cred.region : undefined,
+		const parsed = JSON.parse(apiKey) as { projectId?: unknown; region?: unknown };
+		return {
+			projectId: typeof parsed.projectId === "string" && parsed.projectId ? parsed.projectId : undefined,
+			region: typeof parsed.region === "string" && parsed.region ? parsed.region : undefined,
 		};
-		return _credCache;
 	} catch {
-		return _credCache;
+		return {};
 	}
 }
 
-export function resolveProjectId(): string {
-	const project = projectFromEnv() || credentialFromAuthJson().projectId || projectFromAdcFile();
+export function resolveProjectId(stored: StoredTarget = {}): string {
+	const project = projectFromEnv() || stored.projectId || projectFromAdcFile();
 	if (!project) {
 		throw new Error(
 			"pi-vertex-anthropic: no GCP project resolvable. Run /login (which probes via " +
@@ -131,7 +131,7 @@ export function resolveProjectId(): string {
 	return project;
 }
 
-export function resolveRegion(): string {
-	const region = regionFromEnv() || credentialFromAuthJson().region;
+export function resolveRegion(stored: StoredTarget = {}): string {
+	const region = regionFromEnv() || stored.region;
 	return region && REGION_RE.test(region) ? region : DEFAULT_REGION;
 }

@@ -153,6 +153,8 @@ The extension reads (in order):
 | Region | `GOOGLE_CLOUD_LOCATION` → `CLOUD_ML_REGION` → interactive picker at `/login` → `"global"` |
 | Credentials | Sources resolved by `new GoogleAuth().getClient()` — `GOOGLE_APPLICATION_CREDENTIALS`, ADC file, GCE/GKE metadata server, Workload Identity |
 
+At request time, the environment variables come first, then the project and region that `/login` stored, then the ADC file. So you can change the project or region with an environment variable, without a new `/login`.
+
 In most cases, `gcloud auth application-default login` is the only setup needed — the project ID is recorded in the ADC file's `quota_project_id` and `google-auth-library` finds the credentials automatically.
 
 For explicit shell-based setup, use the extension-specific project variable plus a Vertex AI region:
@@ -311,7 +313,7 @@ pi maps thinking levels automatically:
 
 `index.ts` registers the provider. The code is in `src/`: `resolution.ts` (project and region), `login.ts` (`/login` and refresh), `client.ts` (the Vertex client), `thinking.ts` and `stream.ts` (request options and streaming), and `models.ts` (the model list).
 
-1. **Auth.** `oauth.login` calls `new GoogleAuth().getClient()` from `google-auth-library`. If credentials are available, it stores a sentinel credential in `~/.pi/agent/auth.json` and revalidates daily via `oauth.refreshToken`. Real per-request access token refresh is handled by `google-auth-library` inside the SDK; if a token request fails, the extension reads ADC again and tries once more, so changed ADC needs no restart.
+1. **Auth.** `oauth.login` calls `new GoogleAuth().getClient()` from `google-auth-library`. If credentials are available, pi stores a sentinel credential with the project and region in its auth storage and revalidates it daily via `oauth.refreshToken`. pi hands the project and region back with each request: `oauth.getApiKey` turns the stored credential into the `apiKey` that pi passes to `streamSimple`. The extension does not read pi's `auth.json`. Real per-request access token refresh is handled by `google-auth-library` inside the SDK; if a token request fails, the extension reads ADC again and tries once more, so changed ADC needs no restart.
 2. **Streaming.** `streamSimple` constructs an `AnthropicVertex` client (cached by project and region) and injects it into pi-ai's built-in Anthropic Messages implementation (`anthropicMessagesApi().stream` from `@earendil-works/pi-ai/compat`) via its `client` option. All message conversion, SSE parsing, tool-call handling, prompt caching, and thinking-block plumbing come from upstream pi-ai unchanged.
 
 No subprocess calls, no hand-rolled SSE parser, no Anthropic Messages reimplementation.

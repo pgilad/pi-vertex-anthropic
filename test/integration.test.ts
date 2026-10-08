@@ -1,10 +1,7 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { Api, Context, Model } from "@earendil-works/pi-ai/compat";
 import { anthropicMessagesApi, normalizeContext } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { credentialFromAuthJson, resetCredentialCache } from "../src/resolution.ts";
+import { targetFromApiKey } from "../src/resolution.ts";
 import { asAnthropicMessagesModel, buildAnthropicOptions } from "../src/stream.ts";
 import { isAdaptiveThinkingModel } from "../src/thinking.ts";
 import { type ProviderConfig, register, registeredModel } from "./helpers.ts";
@@ -51,7 +48,7 @@ describe("provider registration", () => {
 		expect(config.baseUrl).toMatch(/^https:\/\//);
 		expect(typeof config.oauth.login).toBe("function");
 		expect(typeof config.oauth.refreshToken).toBe("function");
-		expect(config.oauth.getApiKey()).toBe("adc");
+		expect(typeof config.oauth.getApiKey).toBe("function");
 
 		const ids = config.models.map((m: { id: string }) => m.id).sort();
 		expect(ids).toEqual(
@@ -264,7 +261,6 @@ describe("ADC auth flow (mocked google-auth-library)", () => {
 		"GOOGLE_CLOUD_LOCATION",
 		"CLOUD_ML_REGION",
 		"GOOGLE_APPLICATION_CREDENTIALS",
-		"PI_CODING_AGENT_DIR",
 	] as const;
 	let saved: Record<string, string | undefined>;
 
@@ -317,34 +313,14 @@ describe("ADC auth flow (mocked google-auth-library)", () => {
 		expect(cb.onSelect).toHaveBeenCalledOnce();
 	});
 
-	it("login clears the cached auth.json snapshot in long-lived processes", async () => {
-		const tmp = mkdtempSync(join(tmpdir(), "pi-vertex-login-cache-"));
-		try {
-			process.env.PI_CODING_AGENT_DIR = tmp;
-			writeFileSync(
-				join(tmp, "auth.json"),
-				JSON.stringify({ "vertex-anthropic": { type: "oauth", projectId: "old-proj", region: "global" } }),
-				{ mode: 0o600 },
-			);
-			resetCredentialCache();
-			expect(credentialFromAuthJson().projectId).toBe("old-proj");
+	it("getApiKey hands the stored project and region to streamSimple", async () => {
+		process.env.ANTHROPIC_VERTEX_PROJECT_ID = "env-proj";
+		process.env.GOOGLE_CLOUD_LOCATION = "us-east5";
+		const { config } = register();
 
-			writeFileSync(
-				join(tmp, "auth.json"),
-				JSON.stringify({ "vertex-anthropic": { type: "oauth", projectId: "new-proj", region: "us-east5" } }),
-				{ mode: 0o600 },
-			);
-			process.env.ANTHROPIC_VERTEX_PROJECT_ID = "env-proj";
-			process.env.GOOGLE_CLOUD_LOCATION = "global";
-			const { config } = register();
+		const cred = await config.oauth.login(callbacks());
 
-			await config.oauth.login(callbacks());
-
-			expect(credentialFromAuthJson().projectId).toBe("new-proj");
-		} finally {
-			resetCredentialCache();
-			rmSync(tmp, { recursive: true, force: true });
-		}
+		expect(targetFromApiKey(config.oauth.getApiKey(cred))).toEqual({ projectId: "env-proj", region: "us-east5" });
 	});
 
 	it("login throws a configuration error when ADC is unavailable", async () => {

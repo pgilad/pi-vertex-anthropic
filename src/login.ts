@@ -1,4 +1,5 @@
 import type { OAuthCredentials, OAuthLoginCallbacks } from "@earendil-works/pi-ai/compat";
+import { resetVertexClients } from "./client.ts";
 import {
 	ADC_DOCS_URL,
 	DEFAULT_REGION,
@@ -6,7 +7,6 @@ import {
 	projectFromEnv,
 	REGION_RE,
 	regionFromEnv,
-	resetCredentialCache,
 } from "./resolution.ts";
 
 // =============================================================================
@@ -130,10 +130,9 @@ export async function loginAdc(callbacks: OAuthLoginCallbacks): Promise<OAuthCre
 
 	const region = await chooseRegionAtLogin(callbacks);
 	callbacks.onProgress?.(`Authenticated: project=${projectId}, region=${region}.`);
-	// /login is about to persist this credential; clear any old auth.json
-	// snapshot and Vertex clients held by a long-lived process before the next
-	// request resolves.
-	resetCredentialCache();
+	// Drop the Vertex clients so the next request builds a new one, which reads
+	// ADC again and picks up a changed ADC account.
+	resetVertexClients();
 
 	return {
 		// Sentinels — streamSimple ignores apiKey because the AnthropicVertex
@@ -157,10 +156,9 @@ export async function refreshAdc(credentials: OAuthCredentials, signal?: AbortSi
 	const projectId = await abortable(probeAdcProject(), signal);
 	const storedRegion = typeof credentials.region === "string" ? credentials.region : undefined;
 	const region = storedRegion && REGION_RE.test(storedRegion) ? storedRegion : DEFAULT_REGION;
-	// Drop our cached auth.json read and Vertex clients so the next request
-	// re-resolves against whatever pi persists from this refresh, and reads ADC
-	// again, even in a long-lived process.
-	resetCredentialCache();
+	// Drop the Vertex clients so the next request reads ADC again, even in a
+	// long-lived process.
+	resetVertexClients();
 	return {
 		access: "adc",
 		refresh: "adc",

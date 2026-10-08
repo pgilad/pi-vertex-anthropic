@@ -2,7 +2,7 @@ import type { Api, Context, Model } from "@earendil-works/pi-ai/compat";
 import { normalizeContext } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import extension from "../index.ts";
-import { resetCredentialCache } from "../src/resolution.ts";
+import { resetVertexClients } from "../src/client.ts";
 
 // Regression guard for ADC that changes under a running pi. AnthropicVertex
 // resolves its auth client once, in its constructor, and GoogleAuth keeps the
@@ -74,7 +74,7 @@ describe("Vertex client when ADC changes under a running pi", () => {
 			authorization = new Headers(init?.headers).get("authorization");
 			throw new Error("__captured__");
 		});
-		resetCredentialCache();
+		resetVertexClients();
 		extension({
 			registerProvider: (_name: string, c: unknown) => {
 				config = c;
@@ -117,7 +117,7 @@ describe("Vertex client when ADC changes under a running pi", () => {
 		expect(adc.loads).toBe(2);
 	});
 
-	it("rebuilds the Vertex client on resetCredentialCache, as /login and the daily refresh call it", async () => {
+	it("rebuilds the Vertex client on resetVertexClients, as /login and the daily refresh call it", async () => {
 		expect((await send()).authorization).toBe("Bearer token-1");
 
 		// ADC now holds a different account, but the old token still works, so
@@ -125,7 +125,7 @@ describe("Vertex client when ADC changes under a running pi", () => {
 		adc.generation = 2;
 		expect((await send()).authorization).toBe("Bearer token-1");
 
-		resetCredentialCache();
+		resetVertexClients();
 		expect((await send()).authorization).toBe("Bearer token-2");
 	});
 });

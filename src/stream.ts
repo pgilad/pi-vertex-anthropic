@@ -8,7 +8,7 @@ import {
 	type TranscriptContext,
 } from "@earendil-works/pi-ai/compat";
 import { getVertexClient } from "./client.ts";
-import { resolveProjectId, resolveRegion } from "./resolution.ts";
+import { resolveProjectId, resolveRegion, targetFromApiKey } from "./resolution.ts";
 import {
 	adjustMaxTokensForThinking,
 	DEFAULT_BUDGETS,
@@ -95,7 +95,11 @@ export function streamSimple(
 	// `as unknown as Anthropic` won't satisfy tsc. Runtime is fine — both
 	// classes share the same shape and the streaming API path doesn't touch
 	// any private state.
-	opts.client = getVertexClient(resolveProjectId(), resolveRegion()) as unknown as AnthropicOptions["client"];
+	const stored = targetFromApiKey(options?.apiKey);
+	opts.client = getVertexClient(
+		resolveProjectId(stored),
+		resolveRegion(stored),
+	) as unknown as AnthropicOptions["client"];
 	return anthropicMessages.stream(asAnthropicMessagesModel(model), context, opts);
 }
 

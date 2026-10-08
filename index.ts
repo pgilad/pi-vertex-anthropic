@@ -33,6 +33,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loginAdc, refreshAdc } from "./src/login.ts";
 import { MODELS } from "./src/models.ts";
+import { apiKeyFromCredential } from "./src/resolution.ts";
 import { streamSimple } from "./src/stream.ts";
 
 export default function (pi: ExtensionAPI) {
@@ -58,7 +59,9 @@ export default function (pi: ExtensionAPI) {
 			name: "Google Vertex AI (ADC)",
 			login: loginAdc,
 			refreshToken: refreshAdc,
-			getApiKey: () => "adc",
+			// pi passes this to streamSimple as options.apiKey: the project and
+			// region that /login stored.
+			getApiKey: apiKeyFromCredential,
 		},
 
 		models: MODELS,
