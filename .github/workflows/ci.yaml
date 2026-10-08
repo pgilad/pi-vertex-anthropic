@@ -39,3 +39,43 @@ jobs:
 
       - name: Test (vitest)
         run: npm test
+
+  floor:
+    name: typecheck + test on the oldest supported pi and Node
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # The engines.node floor in package.json.
+          node-version: 22.19.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the oldest supported pi
+        # The peerDependencies floor in package.json.
+        run: |
+          floor="$(node -p 'require("./package.json").peerDependencies["@earendil-works/pi-coding-agent"].replace(/^>=/, "")')"
+          npm install --no-save "@earendil-works/pi-ai@$floor" "@earendil-works/pi-coding-agent@$floor"
+          # The single quotes hold JavaScript template literals, not shell expansions.
+          # shellcheck disable=SC2016
+          node -e '
+            for (const name of ["pi-ai", "pi-coding-agent"]) {
+              const file = `node_modules/@earendil-works/${name}/package.json`;
+              const { version } = JSON.parse(require("node:fs").readFileSync(file, "utf8"));
+              if (version !== process.argv[1]) throw new Error(`${name} is ${version}, not ${process.argv[1]}`);
+              console.log(`${name}@${version}`);
+            }
+          ' "$floor"
+
+      - name: Typecheck (tsc)
+        run: npm run check
+
+      - name: Test (vitest)
+        # test/registry.test.ts compares the models with the dev dependency's
+        # model list. An older pi can have an older list.
+        run: npx vitest run --exclude test/registry.test.ts

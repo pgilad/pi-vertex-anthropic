@@ -71,7 +71,7 @@ The login flow probes ADC, then prompts you to pick a Vertex AI region (`global`
 
 ## Requirements
 
-- Node.js 24 LTS or newer
+- Node.js 22.19 or newer, as pi itself requires
 - pi 1.0 or newer. On pi 0.75.x–0.79.x, pin this extension to `0.7.x`; on pi 0.73.x (`@mariozechner/*`), pin it to `0.1.x`.
 - A GCP project with Vertex AI enabled and Anthropic Claude models granted via [Model Garden](https://console.cloud.google.com/vertex-ai/model-garden)
 - ADC configured via `gcloud` user credentials, service account JSON, the GCE/GKE metadata server, Workload Identity, or any other ADC source
