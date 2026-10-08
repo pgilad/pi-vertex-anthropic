@@ -24,55 +24,16 @@
  * loader maps to its own bundled copy of pi-ai. For pi 0.75–0.79 use release
  * 0.7.x of this extension; for the `@mariozechner/*` namespace (pi 0.73.x)
  * use 0.1.x. See CHANGELOG.md.
+ *
+ * The provider types come from `@earendil-works/pi-coding-agent`, so tsc checks
+ * the registration against pi's real contract. The import is type-only and
+ * disappears at runtime, so that peer dependency stays optional.
  */
 
-import type {
-	Api,
-	AssistantMessageEventStream,
-	Model,
-	OAuthCredentials,
-	OAuthLoginCallbacks,
-	SimpleStreamOptions,
-	TranscriptContext,
-} from "@earendil-works/pi-ai/compat";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loginAdc, refreshAdc } from "./src/login.ts";
 import { MODELS } from "./src/models.ts";
 import { streamSimple } from "./src/stream.ts";
-
-export interface ProviderModelConfig {
-	id: string;
-	name: string;
-	api?: Api;
-	baseUrl?: string;
-	reasoning: boolean;
-	thinkingLevelMap?: Model<Api>["thinkingLevelMap"];
-	input: Model<Api>["input"];
-	cost: Model<Api>["cost"];
-	contextWindow: number;
-	maxTokens: number;
-}
-
-export interface ProviderConfig {
-	name?: string;
-	baseUrl?: string;
-	api?: Api;
-	streamSimple?: (
-		model: Model<Api>,
-		context: TranscriptContext,
-		options?: SimpleStreamOptions,
-	) => AssistantMessageEventStream;
-	oauth?: {
-		name: string;
-		login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials>;
-		refreshToken(credentials: OAuthCredentials, signal: AbortSignal): Promise<OAuthCredentials>;
-		getApiKey(credentials: OAuthCredentials): string;
-	};
-	models?: ProviderModelConfig[];
-}
-
-export interface ExtensionAPI {
-	registerProvider(name: string, config: ProviderConfig): void;
-}
 
 export default function (pi: ExtensionAPI) {
 	pi.registerProvider("vertex-anthropic", {

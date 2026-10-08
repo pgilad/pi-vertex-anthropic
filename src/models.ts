@@ -1,4 +1,4 @@
-import type { ProviderModelConfig } from "../index.ts";
+import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 
 // Vertex AI model IDs verified against Anthropic's docs:
 // https://platform.claude.com/docs/en/about-claude/models/overview
