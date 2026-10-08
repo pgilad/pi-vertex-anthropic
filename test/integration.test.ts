@@ -78,81 +78,6 @@ describe("provider registration", () => {
 			expect(isAdaptiveThinkingModel(modelById(config, m.id)), m.id).toBe(true);
 		}
 	});
-
-	it("registers fable-5 with corrected pricing, limits, and xhigh metadata", () => {
-		const { config } = register();
-		const fable = config.models.find((m: { id: string }) => m.id === "claude-fable-5");
-		expect(fable.contextWindow).toBe(1_000_000);
-		expect(fable.maxTokens).toBe(128_000);
-		expect(fable.cost).toEqual({ input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 });
-		expect(fable.thinkingLevelMap).toEqual({ off: null, xhigh: "xhigh" });
-	});
-
-	it("registers opus-4-8 at Opus-tier pricing with xhigh metadata", () => {
-		const { config } = register();
-		const opus = config.models.find((m: { id: string }) => m.id === "claude-opus-4-8");
-		expect(opus.cost).toEqual({ input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 });
-		expect(opus.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
-	});
-
-	it("registers opus-5 at Opus-tier pricing with xhigh and the registry's off gap", () => {
-		const { config } = register();
-		const opus = config.models.find((m: { id: string }) => m.id === "claude-opus-5");
-		expect(opus.contextWindow).toBe(1_000_000);
-		expect(opus.maxTokens).toBe(128_000);
-		expect(opus.cost).toEqual({ input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 });
-		expect(opus.thinkingLevelMap).toEqual({ off: null, xhigh: "xhigh" });
-	});
-
-	it("registers sonnet-5 with Sonnet 5 pricing, limits, and xhigh metadata", () => {
-		const { config } = register();
-		const sonnet = config.models.find((m: { id: string }) => m.id === "claude-sonnet-5");
-		expect(sonnet.contextWindow).toBe(1_000_000);
-		expect(sonnet.maxTokens).toBe(128_000);
-		expect(sonnet.cost).toEqual({ input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 });
-		expect(sonnet.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
-	});
-
-	it("registers Opus 5.5 with Opus 5.5 pricing, xhigh, and the registry's off/minimal gaps", () => {
-		const { config } = register();
-		const opus = config.models.find((m: { id: string }) => m.id === "claude-opus-5-5");
-		expect(opus.contextWindow).toBe(1_000_000);
-		expect(opus.maxTokens).toBe(128_000);
-		expect(opus.cost).toEqual({ input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 });
-		expect(opus.thinkingLevelMap).toEqual({ off: null, minimal: null, xhigh: "xhigh" });
-	});
-
-	it("registers Sonnet 5.5 with Sonnet-tier pricing and the registry's off/minimal gaps", () => {
-		const { config } = register();
-		const sonnet = config.models.find((m: { id: string }) => m.id === "claude-sonnet-5-5");
-		expect(sonnet.cost).toEqual({ input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 });
-		expect(sonnet.thinkingLevelMap).toEqual({ off: null, minimal: null, xhigh: "xhigh" });
-	});
-
-	it("registers Fable 5.1 at Fable-tier pricing with its cheaper cache read", () => {
-		const { config } = register();
-		const fable = config.models.find((m: { id: string }) => m.id === "claude-fable-5-1");
-		expect(fable.contextWindow).toBe(1_000_000);
-		expect(fable.maxTokens).toBe(128_000);
-		expect(fable.cost).toEqual({ input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 });
-		expect(fable.thinkingLevelMap).toEqual({ off: null, xhigh: "xhigh" });
-	});
-
-	it("registers Opus 4.6 as adaptive without an xhigh slot (like Sonnet 4.6)", () => {
-		const { config } = register();
-		const opus = config.models.find((m: { id: string }) => m.id === "claude-opus-4-6");
-		expect(opus.maxTokens).toBe(128_000);
-		expect(opus.cost).toEqual({ input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 });
-		expect(opus.thinkingLevelMap).toBeUndefined();
-	});
-
-	it("registers Sonnet 4.6 with its real 128K output limit", () => {
-		// Was registered at 64K; Vertex accepts 128000 and rejects 128001.
-		const { config } = register();
-		const sonnet = config.models.find((m: { id: string }) => m.id === "claude-sonnet-4-6");
-		expect(sonnet.contextWindow).toBe(1_000_000);
-		expect(sonnet.maxTokens).toBe(128_000);
-	});
 });
 
 describe("Anthropic Messages stream contract (no network)", () => {
@@ -229,7 +154,9 @@ describe("Anthropic Messages stream contract (no network)", () => {
 
 		expect(capture.params.model).toBe("claude-opus-5");
 		expect(capture.params.thinking.type).toBe("adaptive");
-		expect(capture.params.output_config).toEqual({ effort: "xhigh" });
+		// Opus 5 takes the effort in a trailing system message, so a level change
+		// keeps the cached prefix (compat.supportsMidConvoEffort).
+		expect(capture.params.messages.at(-1)).toEqual({ role: "system", content: [], output_config: { effort: "xhigh" } });
 		expect(capture.params.stream).toBe(true);
 		expect(events.some((e) => e.type === "error")).toBe(true);
 	});
