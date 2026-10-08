@@ -1,11 +1,11 @@
 import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
 import { buildAnthropicOptions } from "../src/stream.ts";
+import { registeredModel } from "./helpers.ts";
 
-// Only the fields buildAnthropicOptions reads (id, reasoning, maxTokens) matter;
-// cast through unknown so we don't have to fill the whole Model shape.
+// Registered models, with overrides for the fields a test changes.
 function fakeModel(id: string, over: Partial<Model<Api>> = {}): Model<Api> {
-	return { id, api: "vertex-anthropic", reasoning: true, maxTokens: 64_000, ...over } as unknown as Model<Api>;
+	return { ...registeredModel(id), ...over } as Model<Api>;
 }
 
 describe("buildAnthropicOptions", () => {
@@ -58,7 +58,7 @@ describe("buildAnthropicOptions", () => {
 
 	describe("budget models", () => {
 		it("sets thinkingBudgetTokens and grows maxTokens to absorb the budget", () => {
-			const opts = buildAnthropicOptions(fakeModel("claude-haiku-4-5", { maxTokens: 64_000 }), {
+			const opts = buildAnthropicOptions(fakeModel("claude-haiku-4-5@20251001"), {
 				reasoning: "high",
 				maxTokens: 4_000,
 			});
@@ -70,7 +70,7 @@ describe("buildAnthropicOptions", () => {
 		});
 
 		it("honors a custom thinkingBudgets override", () => {
-			const opts = buildAnthropicOptions(fakeModel("claude-haiku-4-5"), {
+			const opts = buildAnthropicOptions(fakeModel("claude-haiku-4-5@20251001"), {
 				reasoning: "high",
 				maxTokens: 4_000,
 				thinkingBudgets: { high: 5_000 },

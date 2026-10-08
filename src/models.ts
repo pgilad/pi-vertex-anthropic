@@ -2,6 +2,10 @@ import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 
 // Vertex AI model IDs verified against Anthropic's docs:
 // https://platform.claude.com/docs/en/about-claude/models/overview
+//
+// `compat.forceAdaptiveThinking` marks the models that take adaptive thinking
+// (effort) instead of a token budget, as in pi-ai's own registry. Vertex
+// rejects budgeted thinking for these models with HTTP 400.
 export const MODELS: ProviderModelConfig[] = [
 	{
 		// Upstream marks `off` unsupported for this model, so pi does not
@@ -13,6 +17,7 @@ export const MODELS: ProviderModelConfig[] = [
 		input: ["text", "image"],
 		contextWindow: 1_000_000,
 		maxTokens: 128_000,
+		compat: { forceAdaptiveThinking: true },
 		cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 	},
 	{
@@ -31,6 +36,7 @@ export const MODELS: ProviderModelConfig[] = [
 		input: ["text", "image"],
 		contextWindow: 1_000_000,
 		maxTokens: 128_000,
+		compat: { forceAdaptiveThinking: true },
 		cost: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
 	},
 	{
@@ -46,6 +52,7 @@ export const MODELS: ProviderModelConfig[] = [
 		input: ["text", "image"],
 		contextWindow: 1_000_000,
 		maxTokens: 128_000,
+		compat: { forceAdaptiveThinking: true },
 		cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
 	},
 	{
@@ -61,6 +68,7 @@ export const MODELS: ProviderModelConfig[] = [
 		input: ["text", "image"],
 		contextWindow: 1_000_000,
 		maxTokens: 128_000,
+		compat: { forceAdaptiveThinking: true },
 		cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
 	},
 	{
@@ -71,6 +79,7 @@ export const MODELS: ProviderModelConfig[] = [
 		input: ["text", "image"],
 		contextWindow: 1_000_000,
 		maxTokens: 128_000,
+		compat: { forceAdaptiveThinking: true },
 		cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 	},
 	{
@@ -84,6 +93,7 @@ export const MODELS: ProviderModelConfig[] = [
 		input: ["text", "image"],
 		contextWindow: 1_000_000,
 		maxTokens: 128_000,
+		compat: { forceAdaptiveThinking: true },
 		cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 	},
 	{
@@ -97,6 +107,7 @@ export const MODELS: ProviderModelConfig[] = [
 		input: ["text", "image"],
 		contextWindow: 1_000_000,
 		maxTokens: 128_000,
+		compat: { forceAdaptiveThinking: true },
 		cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 	},
 	{
@@ -109,6 +120,7 @@ export const MODELS: ProviderModelConfig[] = [
 		input: ["text", "image"],
 		contextWindow: 1_000_000,
 		maxTokens: 128_000,
+		compat: { forceAdaptiveThinking: true },
 		cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
 	},
 	{
@@ -125,6 +137,7 @@ export const MODELS: ProviderModelConfig[] = [
 		input: ["text", "image"],
 		contextWindow: 1_000_000,
 		maxTokens: 128_000,
+		compat: { forceAdaptiveThinking: true },
 		cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
 	},
 	{
@@ -138,6 +151,7 @@ export const MODELS: ProviderModelConfig[] = [
 		input: ["text", "image"],
 		contextWindow: 1_000_000,
 		maxTokens: 128_000,
+		compat: { forceAdaptiveThinking: true },
 		cost: { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
 	},
 	{

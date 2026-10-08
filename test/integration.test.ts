@@ -4,10 +4,10 @@ import { join } from "node:path";
 import type { Api, Context, Model } from "@earendil-works/pi-ai/compat";
 import { anthropicMessagesApi, normalizeContext } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import extension from "../index.ts";
 import { credentialFromAuthJson, resetCredentialCache } from "../src/resolution.ts";
 import { asAnthropicMessagesModel, buildAnthropicOptions } from "../src/stream.ts";
 import { isAdaptiveThinkingModel } from "../src/thinking.ts";
+import { type ProviderConfig, register, registeredModel } from "./helpers.ts";
 
 // Mock google-auth-library so the ADC probe never touches real credentials or
 // the network. probeAdcProject's dynamic import resolves to this mock.
@@ -26,26 +26,8 @@ vi.mock("google-auth-library", () => ({
 	},
 }));
 
-// Provider config is read structurally in these tests (noExplicitAny is off in biome.json).
-type ProviderConfig = any;
-
-function register(): { name: string; config: ProviderConfig } {
-	let captured: { name: string; config: ProviderConfig } | undefined;
-	const pi = {
-		registerProvider: (name: string, config: ProviderConfig) => {
-			captured = { name, config };
-		},
-	};
-	extension(pi as unknown as Parameters<typeof extension>[0]);
-	if (!captured) throw new Error("registerProvider was not called");
-	return captured;
-}
-
 function modelById(config: ProviderConfig, id: string): Model<Api> {
-	const m = config.models.find((x: { id: string }) => x.id === id);
-	if (!m) throw new Error(`model ${id} not registered`);
-	// pi injects api/provider/baseUrl onto each model before handing it to streamSimple.
-	return { ...m, api: config.api, provider: "vertex-anthropic", baseUrl: config.baseUrl } as unknown as Model<Api>;
+	return registeredModel(id, config);
 }
 
 const CONTEXT = normalizeContext({ messages: [{ role: "user", content: "hi", timestamp: 0 }] } as unknown as Context);
@@ -89,14 +71,14 @@ describe("provider registration", () => {
 		);
 	});
 
-	it("maps every registered non-budget model through ADAPTIVE_THINKING (drift guard)", () => {
-		// Haiku 4.5 is the only budget-based entry; everything else must be in the
-		// adaptive table or its reasoning requests 400 on Vertex.
+	it("marks every registered model except Haiku 4.5 as adaptive (drift guard)", () => {
+		// Haiku 4.5 is the only budget-based entry; everything else needs
+		// compat.forceAdaptiveThinking or its reasoning requests 400 on Vertex.
 		const { config } = register();
 		const budgetBased = new Set(["claude-haiku-4-5@20251001"]);
 		for (const m of config.models as Array<{ id: string }>) {
 			if (budgetBased.has(m.id)) continue;
-			expect(isAdaptiveThinkingModel(m.id)).toBe(true);
+			expect(isAdaptiveThinkingModel(modelById(config, m.id)), m.id).toBe(true);
 		}
 	});
 
@@ -189,8 +171,8 @@ describe("Anthropic Messages stream contract (no network)", () => {
 			events.push(ev);
 		}
 
-		// The real pi-ai param builder produced adaptive shape only because
-		// asAnthropicMessagesModel injected compat.forceAdaptiveThinking.
+		// The real pi-ai param builder produced adaptive shape only because the
+		// model definition carries compat.forceAdaptiveThinking.
 		expect(capture.params.model).toBe("claude-opus-4-8");
 		expect(capture.params.thinking.type).toBe("adaptive");
 		expect(capture.params.output_config).toEqual({ effort: "high" });
