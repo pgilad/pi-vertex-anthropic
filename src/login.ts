@@ -42,8 +42,8 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Pro
 }
 
 async function probeAdcProject(): Promise<string> {
-	// Dynamic import: google-auth-library ships transitively with @anthropic-ai/vertex-sdk.
-	// Loaded on demand so plain `pi --list-models` doesn't pay the cost.
+	// Loaded on demand, like the Vertex client's SDKs (see client.ts), so a pi
+	// start doesn't pay the cost.
 	const { GoogleAuth } = await import("google-auth-library");
 	const auth = new GoogleAuth({
 		scopes: ["https://www.googleapis.com/auth/cloud-platform"],

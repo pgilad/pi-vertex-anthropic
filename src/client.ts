@@ -1,7 +1,30 @@
-import { AnthropicVertex } from "@anthropic-ai/vertex-sdk";
-import { type AuthClient, GoogleAuth } from "google-auth-library";
+import type { AnthropicVertex } from "@anthropic-ai/vertex-sdk";
+import type { AuthClient, GoogleAuth } from "google-auth-library";
 
 // AnthropicVertex clients, one per project and region.
+//
+// The SDKs load on the first request, not when pi loads the extension: pi
+// loads every extension at startup, also when no Vertex model is in use, and
+// importing them there delayed every pi start.
+
+type Sdks = {
+	AnthropicVertex: typeof AnthropicVertex;
+	GoogleAuth: typeof GoogleAuth;
+};
+
+let sdks: Promise<Sdks> | undefined;
+
+function loadSdks(): Promise<Sdks> {
+	sdks ??= Promise.all([import("@anthropic-ai/vertex-sdk"), import("google-auth-library")]).then(
+		([vertex, auth]) => ({ AnthropicVertex: vertex.AnthropicVertex, GoogleAuth: auth.GoogleAuth }),
+		(error) => {
+			// Let the next request try again.
+			sdks = undefined;
+			throw error;
+		},
+	);
+	return sdks;
+}
 
 const clientCache = new Map<string, AnthropicVertex>();
 
@@ -24,8 +47,8 @@ const clientCache = new Map<string, AnthropicVertex>();
  * request instead of rejecting a promise that nothing handles, which stopped
  * pi.
  */
-function reloadingAuthClient(): AuthClient {
-	const newGoogleAuth = () => new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
+function reloadingAuthClient(GoogleAuthClass: typeof GoogleAuth): AuthClient {
+	const newGoogleAuth = () => new GoogleAuthClass({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
 	let auth = newGoogleAuth();
 	return {
 		async getRequestHeaders(url?: string | URL): Promise<Headers> {
@@ -41,11 +64,15 @@ function reloadingAuthClient(): AuthClient {
 	} as unknown as AuthClient;
 }
 
-export function getVertexClient(projectId: string, region: string): AnthropicVertex {
+export async function getVertexClient(projectId: string, region: string): Promise<AnthropicVertex> {
 	const key = `${projectId}|${region}`;
+	const cached = clientCache.get(key);
+	if (cached) return cached;
+	const { AnthropicVertex, GoogleAuth } = await loadSdks();
+	// Another request may have built it while the SDKs loaded.
 	let client = clientCache.get(key);
 	if (!client) {
-		client = new AnthropicVertex({ projectId, region, authClient: reloadingAuthClient() });
+		client = new AnthropicVertex({ projectId, region, authClient: reloadingAuthClient(GoogleAuth) });
 		clientCache.set(key, client);
 	}
 	return client;

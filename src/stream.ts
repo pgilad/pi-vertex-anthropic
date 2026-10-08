@@ -1,8 +1,10 @@
 import {
 	type AnthropicOptions,
 	type Api,
+	type AssistantMessageEvent,
 	type AssistantMessageEventStream,
 	anthropicMessagesApi,
+	createAssistantMessageEventStream,
 	type Model,
 	type SimpleStreamOptions,
 	type TranscriptContext,
@@ -86,19 +88,61 @@ export function streamSimple(
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
 	const opts = buildAnthropicOptions(model, options);
-	// AnthropicVertex extends the same BaseAnthropic class but our copy of
-	// @anthropic-ai/sdk lives in a different node_modules path than pi-ai's
-	// nested copy. ECMAScript private fields (#private) are nominal across
-	// module instances even when the classes are structurally identical, so
-	// `as unknown as Anthropic` won't satisfy tsc. Runtime is fine — both
-	// classes share the same shape and the streaming API path doesn't touch
-	// any private state.
+	// Throws before the stream starts when no project is known, as pi expects
+	// for missing request authentication.
 	const stored = targetFromApiKey(options?.apiKey);
-	opts.client = getVertexClient(
-		resolveProjectId(stored),
-		resolveRegion(stored),
-	) as unknown as AnthropicOptions["client"];
-	return anthropicMessages.stream(asAnthropicMessagesModel(model), context, opts);
+	const projectId = resolveProjectId(stored);
+	const region = resolveRegion(stored);
+
+	// The Vertex client loads its SDKs on the first request (see client.ts), so
+	// the request starts asynchronously and its events pass through this stream.
+	const stream = createAssistantMessageEventStream();
+	void (async () => {
+		try {
+			// AnthropicVertex extends the same BaseAnthropic class but our copy of
+			// @anthropic-ai/sdk lives in a different node_modules path than pi-ai's
+			// nested copy. ECMAScript private fields (#private) are nominal across
+			// module instances even when the classes are structurally identical, so
+			// `as unknown as Anthropic` won't satisfy tsc. Runtime is fine — both
+			// classes share the same shape and the streaming API path doesn't touch
+			// any private state.
+			opts.client = (await getVertexClient(projectId, region)) as unknown as AnthropicOptions["client"];
+			for await (const event of anthropicMessages.stream(asAnthropicMessagesModel(model), context, opts)) {
+				stream.push(event);
+			}
+		} catch (error) {
+			stream.push(setupFailure(model, error, options?.signal));
+		}
+		stream.end();
+	})();
+	return stream;
+}
+
+/** The terminal event when the request can't start, for example when the SDKs fail to load. */
+function setupFailure(model: Model<Api>, error: unknown, signal: AbortSignal | undefined): AssistantMessageEvent {
+	const reason = signal?.aborted ? "aborted" : "error";
+	return {
+		type: "error",
+		reason,
+		error: {
+			role: "assistant",
+			content: [],
+			api: model.api,
+			provider: model.provider,
+			model: model.id,
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: reason,
+			errorMessage: error instanceof Error ? error.message : String(error),
+			timestamp: Date.now(),
+		},
+	};
 }
 
 /**
