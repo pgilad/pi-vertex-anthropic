@@ -1,32 +1,50 @@
 name: Release
 
 on:
+  # A manual run must start from a version tag: gh workflow run release.yaml --ref v1.2.3
   workflow_dispatch:
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: build + test + publish to npm
+  verify:
+    name: verify tag + lint + typecheck + test
     runs-on: ubuntu-latest
-    environment: npm-publish
 
     steps:
+      - name: Verify the run is for a version tag that matches package.json
+        # Runs before the npm-publish environment asks for approval, so a run
+        # from a branch fails here instead of reaching npm publish.
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" != "tag" ] || [ "${REF_NAME#v}" = "$REF_NAME" ]; then
+            echo "::error::Run this workflow for a v* tag, not the $REF_TYPE $REF_NAME."
+            exit 1
+          fi
+
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Verify tag matches package version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          test "$VERSION" = "${REF_NAME#v}"
 
       - name: Install dependencies
         run: npm ci
@@ -40,18 +58,27 @@ jobs:
       - name: Test (vitest)
         run: npm test
 
-      - name: Verify tag matches package version
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          TAG="${GITHUB_REF_NAME#v}"
-          test "$VERSION" = "$TAG"
+  publish:
+    name: publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
 
       - name: Publish to npm
         run: npm publish --provenance --access public
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
