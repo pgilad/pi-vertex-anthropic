@@ -11,10 +11,10 @@ import { getVertexClient } from "./client.ts";
 import { resolveProjectId, resolveRegion, targetFromApiKey } from "./resolution.ts";
 import {
 	adjustMaxTokensForThinking,
-	DEFAULT_BUDGETS,
 	effortFor,
 	isAdaptiveThinkingModel,
 	type PiThinkingLevel,
+	thinkingBudgetFor,
 } from "./thinking.ts";
 
 // =============================================================================
@@ -23,19 +23,27 @@ import {
 
 /**
  * Pure mapping from pi's SimpleStreamOptions to the AnthropicOptions that
- * pi-ai's Anthropic Messages `stream` consumes — extracted from streamSimple
- * so it can be unit tested without constructing a Vertex client or touching
- * the network. Does NOT set `client`; streamSimple injects that separately.
+ * pi-ai's Anthropic Messages `stream` consumes, as pi-ai's own Anthropic
+ * `streamSimple` maps them. Does NOT set `client`; streamSimple injects that
+ * separately.
  *
  * Thinking routing:
  *   • adaptive models → `effort` (via effortFor)
  *   • budget models   → `thinkingBudgetTokens` + grown `maxTokens`
  *   • reasoning off / unset / model without `reasoning` → thinking disabled
+ *
+ * Two deliberate gaps from pi-ai's `streamSimple`:
+ *   • pi-ai also lowers `max_tokens` to fit the free context window, from its
+ *     own token estimate, which it does not export. Vertex accepts a prompt
+ *     plus `max_tokens` over the window, so the extension sends the limit.
+ *   • `apiKey`, `fetch`, and `transport` only matter when pi-ai builds its
+ *     own client; the extension injects the Vertex client.
  */
 export function buildAnthropicOptions(model: Model<Api>, options?: SimpleStreamOptions): AnthropicOptions {
 	const opts: AnthropicOptions = {
 		temperature: options?.temperature,
-		maxTokens: options?.maxTokens,
+		samplingParams: options?.samplingParams,
+		maxTokens: options?.maxTokens ?? model.maxTokens,
 		signal: options?.signal,
 		telemetryContext: options?.telemetryContext,
 		cacheRetention: options?.cacheRetention,
@@ -53,27 +61,17 @@ export function buildAnthropicOptions(model: Model<Api>, options?: SimpleStreamO
 	};
 
 	const reasoning = options?.reasoning as PiThinkingLevel | undefined;
-	if (reasoning && reasoning !== "off" && model.reasoning) {
-		opts.thinkingEnabled = true;
-		if (isAdaptiveThinkingModel(model)) {
-			opts.effort = effortFor(model, reasoning);
-		} else {
-			// Budget-based thinking. We must keep budget_tokens < max_tokens AND
-			// grow max_tokens (within the model cap) to absorb the budget so the
-			// final answer still has room. Mirrors upstream pi-ai's
-			// adjustMaxTokensForThinking — see the doc-comment on that helper.
-			const customBudget = options?.thinkingBudgets?.[reasoning as keyof typeof options.thinkingBudgets];
-			const budget = customBudget ?? DEFAULT_BUDGETS[reasoning] ?? DEFAULT_BUDGETS.medium;
-			const { maxTokens, thinkingBudget } = adjustMaxTokensForThinking(
-				options?.maxTokens,
-				model.maxTokens ?? 64_000,
-				budget,
-			);
-			opts.maxTokens = maxTokens;
-			opts.thinkingBudgetTokens = thinkingBudget;
-		}
-	} else {
+	if (!reasoning || reasoning === "off" || !model.reasoning) {
 		opts.thinkingEnabled = false;
+	} else if (isAdaptiveThinkingModel(model)) {
+		opts.thinkingEnabled = true;
+		opts.effort = effortFor(model, reasoning);
+	} else {
+		const budget = thinkingBudgetFor(reasoning, options?.thinkingBudgets);
+		const adjusted = adjustMaxTokensForThinking(opts.maxTokens ?? model.maxTokens, model.maxTokens, budget);
+		opts.thinkingEnabled = true;
+		opts.maxTokens = adjusted.maxTokens;
+		opts.thinkingBudgetTokens = adjusted.thinkingBudget;
 	}
 
 	return opts;

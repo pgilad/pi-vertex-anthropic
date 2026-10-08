@@ -247,8 +247,8 @@ describe("Anthropic Messages stream contract (no network)", () => {
 		}
 
 		expect(capture.params.thinking.type).toBe("enabled");
-		expect(capture.params.thinking.budget_tokens).toBe(20_480);
-		expect(capture.params.max_tokens).toBe(24_480);
+		expect(capture.params.thinking.budget_tokens).toBe(16_384);
+		expect(capture.params.max_tokens).toBe(20_384);
 		expect(events.some((e) => e.type === "error")).toBe(true);
 	});
 });

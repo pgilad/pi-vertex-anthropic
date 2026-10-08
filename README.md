@@ -298,7 +298,9 @@ pi maps thinking levels automatically:
 
 - **Opus 4.7, Opus 4.8, Opus 5, Opus 5.5, Sonnet 5, Sonnet 5.5, Fable 5, Fable 5.1** (adaptive, with `xhigh`): `--thinking low|medium|high|xhigh` becomes the SDK's `effort` parameter directly.
 - **Opus 4.6 and Sonnet 4.6** (adaptive, no `xhigh` slot): `low|medium|high` pass through; `xhigh` is clamped to `high` so Anthropic's API doesn't 400 the request. Matches upstream pi-ai's `mapThinkingLevelToEffort` fallback when a model's `thinkingLevelMap` lacks an `xhigh` entry.
-- **Haiku 4.5** (extended/budgeted thinking): pi thinking levels map to `thinkingBudgetTokens` using the default budgets (1k / 4k / 10k / 20k / 32k for `minimal`/`low`/`medium`/`high`/`xhigh`) or your `settings.thinkingBudgets` overrides. See pi's [`thinkingBudgets` settings docs](https://github.com/earendil-works/pi-coding-agent/blob/main/docs/settings.md#thinkingbudgets) for the exact shape. The extension grows `max_tokens` (capped at the model maximum) to absorb the budget — mirroring upstream's `adjustMaxTokensForThinking` — so `--max-tokens 4000 --thinking high` won't violate Anthropic's `budget_tokens < max_tokens` constraint.
+- **Haiku 4.5** (extended/budgeted thinking): pi thinking levels map to `thinkingBudgetTokens` using the same default budgets as pi's built-in Anthropic provider (`xhigh` uses the `high` budget) or your `settings.thinkingBudgets` overrides. See pi's [`thinkingBudgets` settings docs](https://github.com/earendil-works/pi-coding-agent/blob/main/docs/settings.md#thinkingbudgets) for the exact shape. The extension grows `max_tokens` (capped at the model maximum) to absorb the budget, as pi does, so `--max-tokens 4000 --thinking high` won't violate Anthropic's `budget_tokens < max_tokens` constraint.
+
+The extension builds each request the way pi's built-in Anthropic provider does. `test/parity.test.ts` sends the same requests through both and fails when they differ.
 
 ## Security notes
 

@@ -64,9 +64,9 @@ describe("buildAnthropicOptions", () => {
 			});
 			expect(opts.thinkingEnabled).toBe(true);
 			expect(opts.effort).toBeUndefined();
-			// high default budget is 20480; max grows 4000 -> 24480, capped at 64000.
-			expect(opts.thinkingBudgetTokens).toBe(20_480);
-			expect(opts.maxTokens).toBe(24_480);
+			// high default budget is 16384; max grows 4000 -> 20384, capped at 64000.
+			expect(opts.thinkingBudgetTokens).toBe(16_384);
+			expect(opts.maxTokens).toBe(20_384);
 		});
 
 		it("honors a custom thinkingBudgets override", () => {
