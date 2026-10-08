@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { projectFromEnv, regionFromEnv } from "../index.ts";
+import { projectFromEnv, regionFromEnv } from "../src/resolution.ts";
 
 const PROJECT_ENVS = ["ANTHROPIC_VERTEX_PROJECT_ID", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT"] as const;
 const REGION_ENVS = ["GOOGLE_CLOUD_LOCATION", "CLOUD_ML_REGION"] as const;

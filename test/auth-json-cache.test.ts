@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { __resetCredCacheForTests, credentialFromAuthJson } from "../index.ts";
+import { credentialFromAuthJson, resetCredentialCache } from "../src/resolution.ts";
 
 let agentDir: string;
 let savedEnv: string | undefined;
@@ -15,14 +15,14 @@ beforeEach(() => {
 	agentDir = mkdtempSync(join(tmpdir(), "pi-vertex-anthropic-test-"));
 	savedEnv = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = agentDir;
-	__resetCredCacheForTests();
+	resetCredentialCache();
 });
 
 afterEach(() => {
 	rmSync(agentDir, { recursive: true, force: true });
 	if (savedEnv === undefined) delete process.env.PI_CODING_AGENT_DIR;
 	else process.env.PI_CODING_AGENT_DIR = savedEnv;
-	__resetCredCacheForTests();
+	resetCredentialCache();
 });
 
 describe("credentialFromAuthJson", () => {
@@ -91,7 +91,7 @@ describe("credentialFromAuthJson", () => {
 		expect(credentialFromAuthJson().projectId).toBe("first-call");
 
 		// After explicit reset, it re-reads.
-		__resetCredCacheForTests();
+		resetCredentialCache();
 		expect(credentialFromAuthJson().projectId).toBe("second-call");
 	});
 });

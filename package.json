@@ -33,6 +33,7 @@
   },
   "files": [
     "index.ts",
+    "src/",
     "CHANGELOG.md"
   ],
   "publishConfig": {
@@ -41,9 +42,9 @@
   },
   "scripts": {
     "check": "tsc",
-    "lint": "biome check index.ts test/",
-    "lint:fix": "biome check --write index.ts test/",
-    "format": "biome format --write index.ts test/",
+    "lint": "biome check index.ts src/ test/",
+    "lint:fix": "biome check --write index.ts src/ test/",
+    "format": "biome format --write index.ts src/ test/",
     "test": "vitest run",
     "test:watch": "vitest"
   },

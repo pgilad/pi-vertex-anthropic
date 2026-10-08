@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetCredentialCache, resolveProjectId, resolveRegion } from "../index.ts";
+import { resetCredentialCache, resolveProjectId, resolveRegion } from "../src/resolution.ts";
 
 const ENV_KEYS = [
 	"ANTHROPIC_VERTEX_PROJECT_ID",

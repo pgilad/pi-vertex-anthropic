@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { chooseRegionAtLogin } from "../index.ts";
+import { chooseRegionAtLogin } from "../src/login.ts";
 
 const REGION_ENVS = ["GOOGLE_CLOUD_LOCATION", "CLOUD_ML_REGION"] as const;
 

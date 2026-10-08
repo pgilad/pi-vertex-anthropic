@@ -1,6 +1,7 @@
 import type { Api, Model } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
-import { adjustMaxTokensForThinking, asAnthropicMessagesModel, effortFor, isAdaptiveThinkingModel } from "../index.ts";
+import { asAnthropicMessagesModel } from "../src/stream.ts";
+import { adjustMaxTokensForThinking, effortFor, isAdaptiveThinkingModel } from "../src/thinking.ts";
 
 function fakeModel(id: string, compat?: Record<string, unknown>): Model<Api> {
 	// Cast through unknown — we only exercise the fields asAnthropicMessagesModel reads.

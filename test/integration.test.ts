@@ -4,13 +4,10 @@ import { join } from "node:path";
 import type { Api, Context, Model } from "@earendil-works/pi-ai/compat";
 import { anthropicMessagesApi, normalizeContext } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import extension, {
-	asAnthropicMessagesModel,
-	buildAnthropicOptions,
-	credentialFromAuthJson,
-	isAdaptiveThinkingModel,
-	resetCredentialCache,
-} from "../index.ts";
+import extension from "../index.ts";
+import { credentialFromAuthJson, resetCredentialCache } from "../src/resolution.ts";
+import { asAnthropicMessagesModel, buildAnthropicOptions } from "../src/stream.ts";
+import { isAdaptiveThinkingModel } from "../src/thinking.ts";
 
 // Mock google-auth-library so the ADC probe never touches real credentials or
 // the network. probeAdcProject's dynamic import resolves to this mock.

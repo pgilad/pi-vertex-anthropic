@@ -1,7 +1,8 @@
 import type { Api, Context, Model } from "@earendil-works/pi-ai/compat";
 import { normalizeContext } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import extension, { resetCredentialCache } from "../index.ts";
+import extension from "../index.ts";
+import { resetCredentialCache } from "../src/resolution.ts";
 
 // Regression guard for ADC that changes under a running pi. AnthropicVertex
 // resolves its auth client once, in its constructor, and GoogleAuth keeps the

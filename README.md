@@ -309,7 +309,7 @@ pi maps thinking levels automatically:
 
 ## How it works
 
-The extension is a single-file shim (~650 lines, a large share of it explanatory comments):
+`index.ts` registers the provider. The code is in `src/`: `resolution.ts` (project and region), `login.ts` (`/login` and refresh), `client.ts` (the Vertex client), `thinking.ts` and `stream.ts` (request options and streaming), and `models.ts` (the model list).
 
 1. **Auth.** `oauth.login` calls `new GoogleAuth().getClient()` from `google-auth-library`. If credentials are available, it stores a sentinel credential in `~/.pi/agent/auth.json` and revalidates daily via `oauth.refreshToken`. Real per-request access token refresh is handled by `google-auth-library` inside the SDK; if a token request fails, the extension reads ADC again and tries once more, so changed ADC needs no restart.
 2. **Streaming.** `streamSimple` constructs an `AnthropicVertex` client (cached by project and region) and injects it into pi-ai's built-in Anthropic Messages implementation (`anthropicMessagesApi().stream` from `@earendil-works/pi-ai/compat`) via its `client` option. All message conversion, SSE parsing, tool-call handling, prompt caching, and thinking-block plumbing come from upstream pi-ai unchanged.

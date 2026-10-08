@@ -1,6 +1,6 @@
 import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
-import { buildAnthropicOptions } from "../index.ts";
+import { buildAnthropicOptions } from "../src/stream.ts";
 
 // Only the fields buildAnthropicOptions reads (id, reasoning, maxTokens) matter;
 // cast through unknown so we don't have to fill the whole Model shape.
