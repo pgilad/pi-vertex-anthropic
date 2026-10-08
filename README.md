@@ -254,6 +254,8 @@ If you need a specific region, confirm that the selected Claude model is availab
 
 `/login` only verifies that ADC exists and stores the selected project and region in pi. Access tokens are still acquired by `google-auth-library` at request time, so request failures usually mean project, IAM, Model Garden access, quota, or region/model availability issues.
 
+You don't need to restart pi after you change ADC (for example, re-run `gcloud auth application-default login` because the old refresh token expired). When a token request fails, the extension reads ADC again and tries once more. `/login` also rebuilds the Vertex client, which picks up a different ADC account even while the old credential still works.
+
 ## Choosing a model
 
 Pick interactively with `/model`, or pass on the command line:
@@ -309,7 +311,7 @@ pi maps thinking levels automatically:
 
 The extension is a single-file shim (~650 lines, a large share of it explanatory comments):
 
-1. **Auth.** `oauth.login` calls `new GoogleAuth().getClient()` from `google-auth-library`. If credentials are available, it stores a sentinel credential in `~/.pi/agent/auth.json` and revalidates daily via `oauth.refreshToken`. Real per-request access token refresh is handled by `google-auth-library` inside the SDK.
+1. **Auth.** `oauth.login` calls `new GoogleAuth().getClient()` from `google-auth-library`. If credentials are available, it stores a sentinel credential in `~/.pi/agent/auth.json` and revalidates daily via `oauth.refreshToken`. Real per-request access token refresh is handled by `google-auth-library` inside the SDK; if a token request fails, the extension reads ADC again and tries once more, so changed ADC needs no restart.
 2. **Streaming.** `streamSimple` constructs an `AnthropicVertex` client (cached by project and region) and injects it into pi-ai's built-in Anthropic Messages implementation (`anthropicMessagesApi().stream` from `@earendil-works/pi-ai/compat`) via its `client` option. All message conversion, SSE parsing, tool-call handling, prompt caching, and thinking-block plumbing come from upstream pi-ai unchanged.
 
 No subprocess calls, no hand-rolled SSE parser, no Anthropic Messages reimplementation.

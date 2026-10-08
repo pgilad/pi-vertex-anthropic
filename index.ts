@@ -41,7 +41,7 @@ import {
 	type SimpleStreamOptions,
 	type TranscriptContext,
 } from "@earendil-works/pi-ai/compat";
-import { GoogleAuth } from "google-auth-library";
+import { type AuthClient, GoogleAuth } from "google-auth-library";
 
 interface ProviderModelConfig {
 	id: string;
@@ -159,15 +159,19 @@ export function regionFromEnv(): string | undefined {
 let _credCache: { projectId?: string; region?: string } | undefined;
 
 /**
- * Clear the cached auth.json read. Production-callable: the per-process cache
- * (see above) assumes pi reloads the module after /login or /logout. If that
- * assumption ever stops holding, call this to force the next resolution to
- * re-read auth.json. `/login` and `refreshAdc` call it after successful ADC
- * probes, so staleness in a long-lived process is bounded to the next auth
- * validation.
+ * Clear the cached auth.json read and the cached Vertex clients.
+ * Production-callable: the per-process cache (see above) assumes pi reloads the
+ * module after /login or /logout. If that assumption ever stops holding, call
+ * this to force the next resolution to re-read auth.json. `/login` and
+ * `refreshAdc` call it after successful ADC probes, so staleness in a
+ * long-lived process is bounded to the next auth validation. The next request
+ * also builds a new Vertex client, which reads ADC again: that picks up a
+ * changed ADC account even while the old credential still works, which
+ * reloadingAuthClient() can't see.
  */
 export function resetCredentialCache(): void {
 	_credCache = undefined;
+	clientCache.clear();
 }
 
 /** @internal — back-compat alias used by the test suite. */
@@ -219,21 +223,39 @@ export function resolveRegion(): string {
 const clientCache = new Map<string, AnthropicVertex>();
 
 /**
- * A GoogleAuth whose getClient() promise is marked as handled. AnthropicVertex
- * calls getClient() in its constructor but awaits the promise only inside a
- * request, so when ADC is broken (a missing credentials file, no ADC source),
- * the promise rejected with no handler and Node stopped pi. The request still
- * awaits the same promise, so it fails with the ADC error instead.
+ * The auth client for AnthropicVertex: it reads ADC again when a token request
+ * fails.
+ *
+ * AnthropicVertex resolves its auth client once, in its constructor, and
+ * GoogleAuth keeps the credential it loads. So a cached Vertex client kept the
+ * refresh token or key that ADC had at its first request, and when ADC changed
+ * under a running pi (`gcloud auth application-default login` after the old
+ * refresh token expired or was revoked, or a rotated service account key),
+ * every request failed until pi restarted. Now a failed token request builds a
+ * new GoogleAuth, which reads ADC again, and tries once more. If that fails
+ * too, the request fails with its error.
+ *
+ * AnthropicVertex only calls getRequestHeaders() on its auth client, and reads
+ * projectId only when it has no project, hence the cast. With an authClient,
+ * AnthropicVertex calls nothing in its constructor, so broken ADC fails the
+ * request instead of rejecting a promise that nothing handles, which stopped
+ * pi.
  */
-function handledGoogleAuth(): GoogleAuth {
-	const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
-	const getClient = auth.getClient.bind(auth);
-	auth.getClient = () => {
-		const client = getClient();
-		client.catch(() => {});
-		return client;
-	};
-	return auth;
+function reloadingAuthClient(): AuthClient {
+	const newGoogleAuth = () => new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
+	let auth = newGoogleAuth();
+	return {
+		async getRequestHeaders(url?: string | URL): Promise<Headers> {
+			const used = auth;
+			try {
+				return await (await used.getClient()).getRequestHeaders(url);
+			} catch {
+				// A concurrent request may have reloaded already.
+				if (auth === used) auth = newGoogleAuth();
+				return (await auth.getClient()).getRequestHeaders(url);
+			}
+		},
+	} as unknown as AuthClient;
 }
 
 function getVertexClient(): AnthropicVertex {
@@ -242,7 +264,7 @@ function getVertexClient(): AnthropicVertex {
 	const key = `${projectId}|${region}`;
 	let client = clientCache.get(key);
 	if (!client) {
-		client = new AnthropicVertex({ projectId, region, googleAuth: handledGoogleAuth() });
+		client = new AnthropicVertex({ projectId, region, authClient: reloadingAuthClient() });
 		clientCache.set(key, client);
 	}
 	return client;
@@ -370,7 +392,8 @@ async function loginAdc(callbacks: OAuthLoginCallbacks): Promise<OAuthCredential
 	const region = await chooseRegionAtLogin(callbacks);
 	callbacks.onProgress?.(`Authenticated: project=${projectId}, region=${region}.`);
 	// /login is about to persist this credential; clear any old auth.json
-	// snapshot held by a long-lived process before the next request resolves.
+	// snapshot and Vertex clients held by a long-lived process before the next
+	// request resolves.
 	resetCredentialCache();
 
 	return {
@@ -395,8 +418,9 @@ async function refreshAdc(credentials: OAuthCredentials, signal?: AbortSignal): 
 	const projectId = await abortable(probeAdcProject(), signal);
 	const storedRegion = typeof credentials.region === "string" ? credentials.region : undefined;
 	const region = storedRegion && REGION_RE.test(storedRegion) ? storedRegion : DEFAULT_REGION;
-	// Drop our cached auth.json read so the next request re-resolves against
-	// whatever pi persists from this refresh, even in a long-lived process.
+	// Drop our cached auth.json read and Vertex clients so the next request
+	// re-resolves against whatever pi persists from this refresh, and reads ADC
+	// again, even in a long-lived process.
 	resetCredentialCache();
 	return {
 		access: "adc",
