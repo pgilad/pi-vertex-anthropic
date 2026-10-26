@@ -50,7 +50,7 @@
   },
   "//deps": "@anthropic-ai/sdk is a direct dep ONLY to floor the core SDK at the release that added the backendMiddleware hook, which the Vertex URL rewrite needs; with an older core SDK every request 404s as /v1/v1/messages. index.ts never imports it. @anthropic-ai/vertex-sdk now declares its own, higher floor (see its dependencies in package-lock.json), so this is a second guard in case a later vertex-sdk loosens that range again. Guarded by test/vertex-wire-shape.test.ts.",
   "dependencies": {
-    "@anthropic-ai/sdk": ">=0.103.0 <1",
+    "@anthropic-ai/sdk": ">=0.203.0 <1",
     "@anthropic-ai/vertex-sdk": "^0.20.4",
     "google-auth-library": "^10.9.1"
   },
