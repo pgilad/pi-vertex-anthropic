@@ -1,4 +1,5 @@
 import type { OAuthCredentials, OAuthLoginCallbacks } from "@earendil-works/pi-ai/compat";
+import { googleAuthClientOptions } from "./auth-transport.ts";
 import { resetVertexClients } from "./client.ts";
 import {
 	ADC_DOCS_URL,
@@ -44,9 +45,11 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Pro
 async function probeAdcProject(): Promise<string> {
 	// Loaded on demand, like the Vertex client's SDKs (see client.ts), so a pi
 	// start doesn't pay the cost.
-	const { GoogleAuth } = await import("google-auth-library");
+	const authModule = await import("google-auth-library");
+	const GoogleAuth = ("default" in authModule ? authModule.default : authModule).GoogleAuth;
 	const auth = new GoogleAuth({
 		scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+		clientOptions: await googleAuthClientOptions(),
 	});
 
 	// Throws if no credential source works.

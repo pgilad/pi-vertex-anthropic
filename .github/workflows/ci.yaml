@@ -79,3 +79,30 @@ jobs:
         # test/registry.test.ts compares the models with the dev dependency's
         # model list. An older pi can have an older list.
         run: npx vitest run --exclude test/registry.test.ts
+
+  omo-loader:
+    name: omo Bun loader integration
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install pinned omo loader
+        run: npm install --prefix "$RUNNER_TEMP/senpi-loader" --no-save --no-package-lock --ignore-scripts @code-yeongyu/senpi@2026.10.31-2
+
+      - name: Test metadata ADC and local proxy
+        env:
+          SENPI_LOADER_PATH: ${{ runner.temp }}/senpi-loader/node_modules/@code-yeongyu/senpi/dist/core/extensions/bun-extension-importer.js
+        run: npm run test:omo

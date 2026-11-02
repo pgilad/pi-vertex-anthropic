@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["index.ts", "src/**/*.ts", "test/**/*.ts"]
+    "includes": ["index.ts", "src/**/*.ts", "test/**/*.ts", "integration/**/*.ts", "integration/**/*.mts"]
   },
   "linter": {
     "enabled": true,

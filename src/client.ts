@@ -1,5 +1,6 @@
 import type { AnthropicVertex } from "@anthropic-ai/vertex-sdk";
 import type { AuthClient, GoogleAuth } from "google-auth-library";
+import { googleAuthClientOptions } from "./auth-transport.ts";
 
 // AnthropicVertex clients, one per project and region.
 //
@@ -16,7 +17,10 @@ let sdks: Promise<Sdks> | undefined;
 
 function loadSdks(): Promise<Sdks> {
 	sdks ??= Promise.all([import("@anthropic-ai/vertex-sdk"), import("google-auth-library")]).then(
-		([vertex, auth]) => ({ AnthropicVertex: vertex.AnthropicVertex, GoogleAuth: auth.GoogleAuth }),
+		([vertex, auth]) => ({
+			AnthropicVertex: vertex.AnthropicVertex,
+			GoogleAuth: ("default" in auth ? auth.default : auth).GoogleAuth,
+		}),
 		(error) => {
 			// Let the next request try again.
 			sdks = undefined;
@@ -47,8 +51,15 @@ const clientCache = new Map<string, AnthropicVertex>();
  * request instead of rejecting a promise that nothing handles, which stopped
  * pi.
  */
-function reloadingAuthClient(GoogleAuthClass: typeof GoogleAuth): AuthClient {
-	const newGoogleAuth = () => new GoogleAuthClass({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
+function reloadingAuthClient(
+	GoogleAuthClass: typeof GoogleAuth,
+	clientOptions: Awaited<ReturnType<typeof googleAuthClientOptions>>,
+): AuthClient {
+	const newGoogleAuth = () =>
+		new GoogleAuthClass({
+			scopes: "https://www.googleapis.com/auth/cloud-platform",
+			clientOptions,
+		});
 	let auth = newGoogleAuth();
 	return {
 		async getRequestHeaders(url?: string | URL): Promise<Headers> {
@@ -69,10 +80,11 @@ export async function getVertexClient(projectId: string, region: string): Promis
 	const cached = clientCache.get(key);
 	if (cached) return cached;
 	const { AnthropicVertex, GoogleAuth } = await loadSdks();
+	const clientOptions = await googleAuthClientOptions();
 	// Another request may have built it while the SDKs loaded.
 	let client = clientCache.get(key);
 	if (!client) {
-		client = new AnthropicVertex({ projectId, region, authClient: reloadingAuthClient(GoogleAuth) });
+		client = new AnthropicVertex({ projectId, region, authClient: reloadingAuthClient(GoogleAuth, clientOptions) });
 		clientCache.set(key, client);
 	}
 	return client;
